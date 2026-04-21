@@ -13,7 +13,7 @@
                },
     "info":  {
                  "productName":  "Proxy Checker",
-                 "productVersion":  "1.1.4",
+                 "productVersion":  "1.1.5",
                  "description":  "Automatic proxy checking and management with 3proxy",
                  "copyright":  "Copyright (C) 2026 Proxy Checker. All rights reserved.",
                  "comments":  "Automatic proxy checker and 3proxy manager"

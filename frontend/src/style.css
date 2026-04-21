@@ -198,6 +198,13 @@ select {
   font-size: 13px;
 }
 
+.filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 260px));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

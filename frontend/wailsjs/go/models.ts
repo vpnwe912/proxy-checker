@@ -34,6 +34,9 @@ export namespace main {
 	    listenAddr: string;
 	    proxyApiUrl: string;
 	    proxyTypeMode: string;
+	    geoLookup: boolean;
+	    geoProvider: string;
+	    geoLookupUrl: string;
 	    autoImport: boolean;
 	    autoImportSec: number;
 	    autoImportUnit: string;
@@ -54,6 +57,9 @@ export namespace main {
 	        this.listenAddr = source["listenAddr"];
 	        this.proxyApiUrl = source["proxyApiUrl"];
 	        this.proxyTypeMode = source["proxyTypeMode"];
+	        this.geoLookup = source["geoLookup"];
+	        this.geoProvider = source["geoProvider"];
+	        this.geoLookupUrl = source["geoLookupUrl"];
 	        this.autoImport = source["autoImport"];
 	        this.autoImportSec = source["autoImportSec"];
 	        this.autoImportUnit = source["autoImportUnit"];
@@ -84,6 +90,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class GeoInfo {
+	    ip?: string;
+	    country?: string;
+	    region?: string;
+	    timezone?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GeoInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.country = source["country"];
+	        this.region = source["region"];
+	        this.timezone = source["timezone"];
+	    }
+	}
 	export class Proxy {
 	    host: string;
 	    port: string;
@@ -113,6 +137,8 @@ export namespace main {
 	    error?: string;
 	    duration: number;
 	    checkedAt: string;
+	    geo: GeoInfo;
+	    geoError?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CheckResult(source);
@@ -126,6 +152,8 @@ export namespace main {
 	        this.error = source["error"];
 	        this.duration = source["duration"];
 	        this.checkedAt = source["checkedAt"];
+	        this.geo = this.convertValues(source["geo"], GeoInfo);
+	        this.geoError = source["geoError"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -146,6 +174,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	export class StateSnapshot {
 	    config: AppConfig;

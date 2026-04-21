@@ -686,12 +686,12 @@ func geoProviderURL(provider string) string {
 func inferGeoProvider(rawURL string) string {
 	lower := strings.ToLower(strings.TrimSpace(rawURL))
 	switch {
-	case strings.Contains(lower, "2ip.ua"):
+		case strings.Contains(lower, "2ip.ua"):
 		if strings.Contains(lower, "/json") {
 			return "2ip_json"
 		}
 		return "2ip"
-	case strings.Contains(lower, "ipinfo.io"):
+		case strings.Contains(lower, "ipinfo.io"):
 		return "ipinfo"
 	case strings.Contains(lower, "ip-api.com"):
 		return "ipapi"
@@ -759,10 +759,10 @@ func parseJSONGeo(body []byte) (GeoInfo, error) {
 			lookupStringAny(payload, "location.region"),
 		)),
 		Timezone: strings.TrimSpace(firstNonEmpty(
-			lookupStringAny(payload, "timezone.id"),
 			lookupStringAny(payload, "timezone"),
-			lookupStringAny(payload, "time_zone.name"),
 			lookupStringAny(payload, "time_zone"),
+			lookupStringAny(payload, "timezone.id"),
+			lookupStringAny(payload, "time_zone.name"),
 		)),
 	}
 	if len(geo.Country) > 2 {
