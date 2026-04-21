@@ -13,8 +13,8 @@ socks5://USER:PWD@127.0.0.1:1080`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(proxies) != 6 {
-		t.Fatalf("expected 6 proxies, got %d", len(proxies))
+	if len(proxies) != 4 {
+		t.Fatalf("expected 4 proxies after dedupe, got %d", len(proxies))
 	}
 	if proxies[1].Login != "USER" || proxies[1].Password != "PWD" {
 		t.Fatalf("auth was not parsed: %+v", proxies[1])
@@ -22,11 +22,11 @@ socks5://USER:PWD@127.0.0.1:1080`)
 	if proxies[0].Type != "auto" {
 		t.Fatalf("bare proxy should use auto detection: %+v", proxies[0])
 	}
-	if proxies[4].Type != "connect" {
-		t.Fatalf("http scheme should map to connect parent: %+v", proxies[4])
+	if proxies[2].Type != "connect" {
+		t.Fatalf("http scheme should map to connect parent: %+v", proxies[2])
 	}
-	if proxies[5].Type != "socks5" || proxies[5].Login != "USER" || proxies[5].Password != "PWD" {
-		t.Fatalf("socks5 URL was not parsed: %+v", proxies[5])
+	if proxies[3].Type != "socks5" || proxies[3].Login != "USER" || proxies[3].Password != "PWD" {
+		t.Fatalf("socks5 URL was not parsed: %+v", proxies[3])
 	}
 }
 
@@ -76,8 +76,8 @@ func TestParseJSONStringProxyFormatsUseAutoDetection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(proxies) != 3 {
-		t.Fatalf("expected 3 proxies, got %d", len(proxies))
+	if len(proxies) != 2 {
+		t.Fatalf("expected 2 proxies after dedupe, got %d", len(proxies))
 	}
 	for _, p := range proxies {
 		if p.Type != "auto" {
@@ -120,5 +120,138 @@ func TestApplyProxyTypeModeOnlyChangesAutoProxies(t *testing.T) {
 	}
 	if proxies[0].Type != "auto" {
 		t.Fatalf("input slice should not be mutated: %+v", proxies[0])
+	}
+}
+
+func TestParseIPInfoGeo(t *testing.T) {
+	body := []byte(`{
+  "ip": "170.168.31.178",
+  "region": "Cherkasy",
+  "country": "UA",
+  "timezone": "Europe/Kyiv"
+}`)
+	geo, err := parseGeoResponse("ipinfo", "https://ipinfo.io/json", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.Country != "UA" || geo.Region != "Cherkasy" || geo.Timezone != "Europe/Kyiv" {
+		t.Fatalf("unexpected geo info: %+v", geo)
+	}
+}
+
+func TestParseIPAPIGeo(t *testing.T) {
+	body := []byte(`{
+  "status":"success",
+  "country":"Ukraine",
+  "countryCode":"UA",
+  "region":"30",
+  "regionName":"Kyiv",
+  "city":"Kyiv",
+  "timezone":"Europe/Kyiv",
+  "query":"170.168.31.178"
+}`)
+	geo, err := parseGeoResponse("ipapi", "http://ip-api.com/json/", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.IP != "170.168.31.178" || geo.Country != "UA" || geo.Region != "Kyiv" || geo.Timezone != "Europe/Kyiv" {
+		t.Fatalf("unexpected ip-api geo info: %+v", geo)
+	}
+}
+
+func TestParseIPWhoIsGeo(t *testing.T) {
+	body := []byte(`{
+  "success": true,
+  "ip": "170.168.31.178",
+  "country_code": "UA",
+  "region": "Kyiv",
+  "timezone": {"id":"Europe/Kyiv"}
+}`)
+	geo, err := parseGeoResponse("ipwhois", "https://ipwho.is/", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.Country != "UA" || geo.Region != "Kyiv" || geo.Timezone != "Europe/Kyiv" {
+		t.Fatalf("unexpected ipwho.is geo info: %+v", geo)
+	}
+}
+
+func TestParse2IPJSONGeo(t *testing.T) {
+	body := []byte(`{
+  "ip":"170.168.31.178",
+  "country_code":"UA",
+  "city":"Kyiv"
+}`)
+	geo, err := parseGeoResponse("2ip_json", "https://2ip.ua/json", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.Country != "UA" || geo.Region != "Kyiv" {
+		t.Fatalf("unexpected 2ip json geo info: %+v", geo)
+	}
+}
+
+func TestParse2IPGeo(t *testing.T) {
+	body := []byte(` ip             : 170.168.31.242
+ provider       : Alex Largman
+ location       : Ukraine (UA), Kyiv
+`)
+	geo, err := parseGeoResponse("2ip", "https://2ip.ua", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.IP != "170.168.31.242" {
+		t.Fatalf("unexpected IP: %+v", geo)
+	}
+	if geo.Country != "UA" {
+		t.Fatalf("unexpected country: %+v", geo)
+	}
+	if geo.Region != "Kyiv" {
+		t.Fatalf("unexpected region: %+v", geo)
+	}
+	if geo.Timezone != "" {
+		t.Fatalf("2ip parser should not invent timezone: %+v", geo)
+	}
+}
+
+func TestInferGeoProvider(t *testing.T) {
+	if inferGeoProvider("https://2ip.ua") != "2ip" {
+		t.Fatal("expected 2ip provider")
+	}
+	if inferGeoProvider("https://ipinfo.io/json") != "ipinfo" {
+		t.Fatal("expected ipinfo provider")
+	}
+	if inferGeoProvider("https://2ip.ua/json") != "2ip_json" {
+		t.Fatal("expected 2ip_json provider")
+	}
+	if inferGeoProvider("http://ip-api.com/json/") != "ipapi" {
+		t.Fatal("expected ipapi provider")
+	}
+	if inferGeoProvider("https://ifconfig.co/json") != "ifconfig" {
+		t.Fatal("expected ifconfig provider")
+	}
+	if inferGeoProvider("https://ipwho.is/") != "ipwhois" {
+		t.Fatal("expected ipwhois provider")
+	}
+	if inferGeoProvider("https://ipapi.co/json/") != "ipapi_co" {
+		t.Fatal("expected ipapi_co provider")
+	}
+	if inferGeoProvider("https://api.ip.sb/geoip") != "ip_sb" {
+		t.Fatal("expected ip_sb provider")
+	}
+	if inferGeoProvider("") != "auto" {
+		t.Fatal("expected auto provider for empty URL")
+	}
+}
+
+func TestMergeGeoInfo(t *testing.T) {
+	base := GeoInfo{Country: "UA", Region: "Kyiv"}
+	next := GeoInfo{IP: "1.2.3.4", Country: "FI", Region: "Uusimaa", Timezone: "Europe/Kyiv"}
+	merged := mergeGeoInfo(base, next)
+	if merged.Country != "UA" || merged.Region != "Kyiv" {
+		t.Fatalf("base values should win: %+v", merged)
+	}
+	if merged.IP != "1.2.3.4" || merged.Timezone != "Europe/Kyiv" {
+		t.Fatalf("missing values should be filled: %+v", merged)
 	}
 }

@@ -20,6 +20,9 @@ type AppConfig struct {
 	ListenAddr      string             `json:"listenAddr"`
 	ProxyAPIURL     string             `json:"proxyApiUrl"`
 	ProxyTypeMode   string             `json:"proxyTypeMode"`
+	GeoLookup       bool               `json:"geoLookup"`
+	GeoProvider     string             `json:"geoProvider"`
+	GeoLookupURL    string             `json:"geoLookupUrl"`
 	AutoImport      bool               `json:"autoImport"`
 	AutoImportSec   int                `json:"autoImportSec"`
 	AutoImportUnit  string             `json:"autoImportUnit"`
@@ -69,6 +72,9 @@ func NewAppState() *AppState {
 		config: AppConfig{
 			ListenAddr:      "127.0.0.1:18080",
 			ProxyTypeMode:   "auto",
+			GeoLookup:       false,
+			GeoProvider:     "auto",
+			GeoLookupURL:    "https://ipinfo.io/json",
 			AutoImportSec:   3600,
 			AutoImportUnit:  "hour",
 			TestURL:         "https://api.ipify.org",
@@ -381,7 +387,7 @@ func (a *AppState) pickAndApplyParent(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				result := CheckProxy(ctx, job.Proxy, cfg.TestURL, time.Duration(cfg.CheckTimeoutSec)*time.Second, cfg.AllowInsecure, cfg.UseCurl)
+				result := CheckProxy(ctx, job.Proxy, cfg.TestURL, time.Duration(cfg.CheckTimeoutSec)*time.Second, cfg.AllowInsecure, cfg.UseCurl, cfg.GeoLookup, cfg.GeoProvider, cfg.GeoLookupURL)
 				results <- monitorResult{Order: job.Order, Index: job.Index, Result: result}
 			}
 		}()
@@ -460,7 +466,7 @@ func (a *AppState) checkAll(ctx context.Context) []CheckResult {
 		go func() {
 			defer wg.Done()
 			for p := range jobs {
-				results <- CheckProxy(ctx, p, cfg.TestURL, time.Duration(cfg.CheckTimeoutSec)*time.Second, cfg.AllowInsecure, cfg.UseCurl)
+				results <- CheckProxy(ctx, p, cfg.TestURL, time.Duration(cfg.CheckTimeoutSec)*time.Second, cfg.AllowInsecure, cfg.UseCurl, cfg.GeoLookup, cfg.GeoProvider, cfg.GeoLookupURL)
 			}
 		}()
 	}
@@ -628,6 +634,15 @@ func normalizeConfig(cfg *AppConfig) {
 	}
 	if cfg.TestURL == "" {
 		cfg.TestURL = "https://api.ipify.org"
+	}
+	if strings.TrimSpace(cfg.GeoLookupURL) == "" {
+		cfg.GeoLookupURL = "https://ipinfo.io/json"
+	}
+	if cfg.GeoProvider == "" {
+		cfg.GeoProvider = inferGeoProvider(cfg.GeoLookupURL)
+	}
+	if !isSupportedGeoProvider(cfg.GeoProvider) {
+		cfg.GeoProvider = "auto"
 	}
 	if cfg.ProxyTypeMode == "" {
 		cfg.ProxyTypeMode = "auto"

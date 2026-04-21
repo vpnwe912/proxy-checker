@@ -77,6 +77,24 @@ app.innerHTML = `
       <input id="monitorEverySec" type="number" min="5" />
       <p class="hint">Это интервал смены IP: монитор обновляет parent.cfg и дергает reload.txt каждые N секунд.</p>
       <label class="check">
+        <input id="geoLookup" type="checkbox" />
+        Определять страну, регион и часовой пояс
+      </label>
+      <label>Geo provider</label>
+      <select id="geoProvider">
+        <option value="auto">AUTO: много источников подряд</option>
+        <option value="2ip">2ip</option>
+        <option value="2ip_json">2ip JSON</option>
+        <option value="ipinfo">ipinfo</option>
+        <option value="ipapi">ip-api.com</option>
+        <option value="ifconfig">ifconfig.co</option>
+        <option value="ipwhois">ipwho.is</option>
+        <option value="ipapi_co">ipapi.co</option>
+        <option value="ip_sb">api.ip.sb</option>
+      </select>
+      <label>URL geo API</label>
+      <input id="geoLookupUrl" type="text" placeholder="Провайдер подставит URL автоматически" />
+      <label class="check">
         <input id="allowInsecure" type="checkbox" />
         TLS без строгой проверки, как curl --insecure
       </label>
@@ -121,9 +139,26 @@ app.innerHTML = `
           </div>
           <button id="exportGood" class="secondary">Сохранить good-proxies.txt</button>
         </div>
+        <div class="filters">
+          <div>
+            <label>Статус</label>
+            <select id="statusFilter">
+              <option value="all">Все</option>
+              <option value="ok">Только рабочие</option>
+              <option value="fail">Только с ошибкой</option>
+              <option value="unchecked">Не проверенные</option>
+            </select>
+          </div>
+          <div>
+            <label>Страна</label>
+            <select id="countryFilter">
+              <option value="all">Все страны</option>
+            </select>
+          </div>
+        </div>
         <table>
           <thead>
-            <tr><th>Прокси</th><th>Тип</th><th>Логин</th><th>Статус</th><th>HTTP / ошибка</th><th>Время</th></tr>
+            <tr><th>Прокси</th><th>Тип</th><th>Логин</th><th>Статус</th><th>Страна</th><th>Регион</th><th>Часовой пояс</th><th>HTTP / ошибка</th><th>Время</th></tr>
           </thead>
           <tbody id="proxyRows"></tbody>
         </table>
@@ -153,6 +188,7 @@ let state = null;
 let isBusy = false;
 let settingsDirty = false;
 let applyingSettings = false;
+let filtersBound = false;
 
 const el = (id) => document.getElementById(id);
 
@@ -185,7 +221,12 @@ async function refresh() {
   ].join('\n');
 
   el('logs').textContent = (state.logs || []).slice().reverse().join('\n');
-  el('proxyRows').innerHTML = state.proxies.map((proxy) => proxyRow(proxy, resultByKey.get(proxyKey(proxy)))).join('');
+  syncCountryFilter(state.proxies, resultByKey);
+  const filteredRows = state.proxies
+    .map((proxy) => ({ proxy, result: resultByKey.get(proxyKey(proxy)) }))
+    .filter(({ proxy, result }) => matchesFilters(proxy, result))
+    .map(({ proxy, result }) => proxyRow(proxy, result));
+  el('proxyRows').innerHTML = filteredRows.join('');
 }
 
 function proxyRow(proxy, result) {
@@ -193,11 +234,17 @@ function proxyRow(proxy, result) {
   let code = '';
   let duration = '';
   let effectiveType = proxy.type;
+  let country = '';
+  let region = '';
+  let timezone = '';
   if (result) {
     status = result.ok ? '<span class="ok">OK</span>' : '<span class="fail">FAIL</span>';
     code = result.statusCode || result.error || '';
     duration = result.duration ? `${Math.round(result.duration / 1000000)} ms` : '';
     effectiveType = result.proxy?.type || effectiveType;
+    country = result.geo?.country || '';
+    region = result.geo?.region || '';
+    timezone = result.geo?.timezone || '';
   }
   return `
     <tr>
@@ -205,6 +252,9 @@ function proxyRow(proxy, result) {
       <td>${escapeHtml(proxyTypeLabel(effectiveType))}</td>
       <td>${escapeHtml(proxy.login || '')}</td>
       <td>${status}</td>
+      <td>${escapeHtml(country)}</td>
+      <td>${escapeHtml(region)}</td>
+      <td>${escapeHtml(timezone)}</td>
       <td>${escapeHtml(String(code))}</td>
       <td>${escapeHtml(duration)}</td>
     </tr>`;
@@ -221,6 +271,10 @@ function fillSettings(config) {
   setValue('checkTimeoutSec', config.checkTimeoutSec);
   setValue('workers', config.workers);
   setValue('monitorEverySec', config.monitorEverySec);
+  el('geoLookup').checked = Boolean(config.geoLookup);
+  setValue('geoProvider', config.geoProvider || 'auto');
+  setValue('geoLookupUrl', config.geoLookupUrl || 'https://ipinfo.io/json');
+  syncGeoLookupUrl();
   el('allowInsecure').checked = Boolean(config.allowInsecure);
 
   const tp = config.threeProxy;
@@ -243,6 +297,9 @@ function readSettings() {
   config.checkTimeoutSec = numberValue('checkTimeoutSec');
   config.workers = numberValue('workers');
   config.monitorEverySec = numberValue('monitorEverySec');
+  config.geoLookup = el('geoLookup').checked;
+  config.geoProvider = value('geoProvider') || 'auto';
+  config.geoLookupUrl = value('geoLookupUrl');
   config.allowInsecure = el('allowInsecure').checked;
   config.threeProxy.exePath = value('exePath');
   config.threeProxy.workDir = value('workDir');
@@ -351,6 +408,50 @@ function proxyTypeLabel(type) {
   }
 }
 
+function syncGeoLookupUrl() {
+  const provider = value('geoProvider') || 'auto';
+  const input = el('geoLookupUrl');
+  const defaults = {
+    auto: 'AUTO: 2ip.ua/json -> 2ip.ua -> ipwho.is -> ifconfig.co -> ipapi.co -> ip-api.com -> ipinfo.io -> api.ip.sb',
+    '2ip': 'https://2ip.ua',
+    '2ip_json': 'https://2ip.ua/json',
+    ipinfo: 'https://ipinfo.io/json',
+    ipapi: 'http://ip-api.com/json/',
+    ifconfig: 'https://ifconfig.co/json',
+    ipwhois: 'https://ipwho.is/',
+    ipapi_co: 'https://ipapi.co/json/',
+    ip_sb: 'https://api.ip.sb/geoip',
+  };
+  const next = defaults[provider] || defaults.auto;
+  if (document.activeElement !== input) input.value = next;
+  input.disabled = true;
+}
+
+function syncCountryFilter(proxies, resultByKey) {
+  const select = el('countryFilter');
+  const current = select.value || 'all';
+  const countries = new Set();
+  for (const proxy of proxies) {
+    const result = resultByKey.get(proxyKey(proxy));
+    const country = (result?.geo?.country || '').trim();
+    if (country) countries.add(country);
+  }
+  select.innerHTML = ['<option value="all">Все страны</option>']
+    .concat(Array.from(countries).sort().map((country) => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`))
+    .join('');
+  select.value = countries.has(current) || current === 'all' ? current : 'all';
+}
+
+function matchesFilters(proxy, result) {
+  const status = el('statusFilter').value || 'all';
+  const country = el('countryFilter').value || 'all';
+  if (status === 'ok' && !result?.ok) return false;
+  if (status === 'fail' && (!result || result.ok)) return false;
+  if (status === 'unchecked' && result) return false;
+  if (country !== 'all' && (result?.geo?.country || '') !== country) return false;
+  return true;
+}
+
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
@@ -402,6 +503,16 @@ async function loadVersionInfo() {
 
 refresh();
 loadVersionInfo();
+if (!filtersBound) {
+  filtersBound = true;
+  ['statusFilter', 'countryFilter'].forEach((id) => {
+    el(id).addEventListener('change', () => refresh());
+  });
+  el('geoProvider').addEventListener('change', () => {
+    syncGeoLookupUrl();
+    if (!applyingSettings) settingsDirty = true;
+  });
+}
 document.querySelectorAll('.settings input, .settings select').forEach((input) => {
   input.addEventListener('input', () => {
     if (!applyingSettings) settingsDirty = true;
