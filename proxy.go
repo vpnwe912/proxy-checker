@@ -47,7 +47,7 @@ type GeoInfo struct {
 }
 
 func (p Proxy) Key() string {
-	return strings.ToLower(strings.Join([]string{p.Host, p.Port, p.Login, p.Password, normalizeProxyType(p.Type)}, "|"))
+	return strings.ToLower(strings.Join([]string{p.Host, p.Port, p.Login, p.Password}, "|"))
 }
 
 func (p Proxy) Address() string {

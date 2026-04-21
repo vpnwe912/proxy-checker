@@ -7,6 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -17,14 +18,24 @@ func main() {
 	app := NewDesktopApp()
 
 	err := wails.Run(&options.App{
-		Title:  "Proxy Checker",
-		Width:  1280,
-		Height: 820,
+		Title:     "Proxy Checker",
+		Width:     1280,
+		Height:    820,
+		Frameless: false,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		OnStartup:  app.Startup,
 		OnShutdown: app.Shutdown,
+		OnBeforeClose: func(ctx context.Context) bool {
+			wailsruntime.WindowHide(ctx)
+			return true
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			DisableWindowIcon:    false,
+		},
 		Bind: []interface{}{
 			app,
 		},
@@ -35,8 +46,9 @@ func main() {
 }
 
 type DesktopApp struct {
-	ctx   context.Context
-	state *AppState
+	ctx     context.Context
+	state   *AppState
+	systray *SystrayManager
 }
 
 type StateSnapshot struct {
@@ -51,7 +63,9 @@ type StateSnapshot struct {
 }
 
 func NewDesktopApp() *DesktopApp {
-	return &DesktopApp{state: NewAppState()}
+	app := &DesktopApp{state: NewAppState()}
+	app.systray = NewSystrayManager(app)
+	return app
 }
 
 func (a *DesktopApp) Startup(ctx context.Context) {
@@ -65,6 +79,9 @@ func (a *DesktopApp) Startup(ctx context.Context) {
 	if a.state.snapshotConfig().AutoImport {
 		a.state.startAutoImport()
 		go a.state.importFromConfiguredAPI(context.Background())
+	}
+	if a.systray != nil {
+		a.systray.Start()
 	}
 }
 
@@ -136,9 +153,9 @@ func (a *DesktopApp) LoadURL(apiURL string) apiResponse {
 	a.state.config.ProxyAPIURL = apiURL
 	a.state.mu.Unlock()
 	_ = a.state.SaveConfig()
-	a.state.setProxies(proxies)
-	a.state.addLog("Loaded proxies from API: " + itoa(len(proxies)))
-	return apiResponse{OK: true, Message: "loaded " + itoa(len(proxies)) + " proxies"}
+	added, skipped := a.state.mergeProxies(proxies)
+	a.state.addLog("Loaded proxies from API: +" + itoa(added) + " new, " + itoa(skipped) + " duplicates skipped")
+	return apiResponse{OK: true, Message: "added " + itoa(added) + " proxies, skipped " + itoa(skipped) + " duplicates"}
 }
 
 func (a *DesktopApp) LoadFilePath(path string) apiResponse {
@@ -152,9 +169,9 @@ func (a *DesktopApp) LoadFilePath(path string) apiResponse {
 		a.state.addLog("File parse failed: " + err.Error())
 		return apiResponse{OK: false, Message: err.Error()}
 	}
-	a.state.setProxies(proxies)
-	a.state.addLog("Loaded proxies from file: " + itoa(len(proxies)))
-	return apiResponse{OK: true, Message: "loaded " + itoa(len(proxies)) + " proxies"}
+	added, skipped := a.state.mergeProxies(proxies)
+	a.state.addLog("Loaded proxies from file: +" + itoa(added) + " new, " + itoa(skipped) + " duplicates skipped")
+	return apiResponse{OK: true, Message: "added " + itoa(added) + " proxies, skipped " + itoa(skipped) + " duplicates"}
 }
 
 func (a *DesktopApp) SelectProxyFile() string {
@@ -240,6 +257,12 @@ func (a *DesktopApp) ExportGoodProxies() apiResponse {
 		return apiResponse{OK: false, Message: err.Error()}
 	}
 	return apiResponse{OK: true, Message: "saved " + itoa(count) + " proxies to " + path}
+}
+
+func (a *DesktopApp) RemoveDeadProxies() apiResponse {
+	removed := a.state.removeDeadProxies()
+	a.state.addLog("Removed dead proxies: " + itoa(removed))
+	return apiResponse{OK: true, Message: "removed " + itoa(removed) + " dead proxies"}
 }
 
 func (a *DesktopApp) context() context.Context {

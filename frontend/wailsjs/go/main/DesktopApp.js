@@ -26,6 +26,10 @@ export function LoadURL(arg1) {
   return window['go']['main']['DesktopApp']['LoadURL'](arg1);
 }
 
+export function RemoveDeadProxies() {
+  return window['go']['main']['DesktopApp']['RemoveDeadProxies']();
+}
+
 export function SaveSettings(arg1) {
   return window['go']['main']['DesktopApp']['SaveSettings'](arg1);
 }

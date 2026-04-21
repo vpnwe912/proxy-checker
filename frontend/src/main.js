@@ -6,6 +6,7 @@ import {
   GetVersion,
   LoadFilePath,
   LoadURL,
+  RemoveDeadProxies,
   SaveSettings,
   SelectProxyFile,
   StartMonitor,
@@ -13,10 +14,28 @@ import {
   StopMonitor,
   StopThreeProxy,
 } from '../wailsjs/go/main/DesktopApp';
+// import {
+//   WindowMinimise,
+//   WindowToggleMaximise,
+//   Quit,
+// } from '../wailsjs/runtime/runtime';
 
 const app = document.querySelector('#app');
 
+
+  // <div class="titlebar">
+  //   <div class="titlebar-title">Proxy Checker</div>
+  //   <div class="titlebar-controls">
+  //     <button id="minimizeBtn" class="titlebar-btn" title="Свернуть">−</button>
+  //     <button id="maximizeBtn" class="titlebar-btn" title="Развернуть">□</button>
+  //     <button id="closeBtn" class="titlebar-btn titlebar-close" title="Закрыть">✕</button>
+  //   </div>
+  // </div>
+  //Этот код вставить ниже для кастомного заголовка окна
+
 app.innerHTML = `
+
+
   <header class="topbar">
     <div>
       <h1>Proxy Checker</h1>
@@ -137,7 +156,10 @@ app.innerHTML = `
             <h2>Прокси</h2>
             <p id="active" class="muted">Активный parent: нет</p>
           </div>
-          <button id="exportGood" class="secondary">Сохранить good-proxies.txt</button>
+          <div class="actions">
+            <button id="removeDead" class="danger">Удалить FAIL</button>
+            <button id="exportGood" class="secondary">Сохранить good-proxies.txt</button>
+          </div>
         </div>
         <div class="filters">
           <div>
@@ -348,6 +370,7 @@ el('start3proxy').addEventListener('click', () => run(async () => {
 }));
 el('stop3proxy').addEventListener('click', () => run(StopThreeProxy));
 el('exportGood').addEventListener('click', () => run(ExportGoodProxies));
+el('removeDead').addEventListener('click', () => run(RemoveDeadProxies));
 el('loadFile').addEventListener('click', () => run(async () => {
   const file = await SelectProxyFile();
   if (!file) return { ok: true, message: 'file selection cancelled' };
@@ -500,6 +523,11 @@ async function loadVersionInfo() {
     console.error('Failed to load version:', err);
   }
 }
+
+// Управление окном
+// el('minimizeBtn').addEventListener('click', () => WindowMinimise());
+// el('maximizeBtn').addEventListener('click', () => WindowToggleMaximise());
+// el('closeBtn').addEventListener('click', () => Quit());
 
 refresh();
 loadVersionInfo();

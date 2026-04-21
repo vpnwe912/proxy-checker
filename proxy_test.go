@@ -1,5 +1,6 @@
 package main
 
+import "time"
 import "testing"
 
 func TestParseProxyFormats(t *testing.T) {
@@ -253,5 +254,45 @@ func TestMergeGeoInfo(t *testing.T) {
 	}
 	if merged.IP != "1.2.3.4" || merged.Timezone != "Europe/Kyiv" {
 		t.Fatalf("missing values should be filled: %+v", merged)
+	}
+}
+
+func TestMergeProxiesAddsOnlyNewEntries(t *testing.T) {
+	state := NewAppState()
+	state.setProxies([]Proxy{
+		{Host: "1.1.1.1", Port: "8080", Type: "connect"},
+	})
+	added, skipped := state.mergeProxies([]Proxy{
+		{Host: "1.1.1.1", Port: "8080", Type: "connect"},
+		{Host: "2.2.2.2", Port: "8080", Type: "connect"},
+	})
+	if added != 1 || skipped != 1 {
+		t.Fatalf("unexpected merge result: added=%d skipped=%d", added, skipped)
+	}
+	if len(state.proxies) != 2 {
+		t.Fatalf("expected 2 proxies after merge, got %d", len(state.proxies))
+	}
+}
+
+func TestRemoveDeadProxiesKeepsUncheckedAndAlive(t *testing.T) {
+	state := NewAppState()
+	state.setProxies([]Proxy{
+		{Host: "1.1.1.1", Port: "8080", Type: "connect"},
+		{Host: "2.2.2.2", Port: "8080", Type: "connect"},
+		{Host: "3.3.3.3", Port: "8080", Type: "connect"},
+	})
+	state.results[state.proxies[0].Key()] = CheckResult{Proxy: state.proxies[0], OK: true, CheckedAt: time.Now().Format(time.RFC3339)}
+	state.results[state.proxies[1].Key()] = CheckResult{Proxy: state.proxies[1], OK: false, CheckedAt: time.Now().Format(time.RFC3339)}
+	removed := state.removeDeadProxies()
+	if removed != 1 {
+		t.Fatalf("expected 1 removed proxy, got %d", removed)
+	}
+	if len(state.proxies) != 2 {
+		t.Fatalf("expected 2 proxies after cleanup, got %d", len(state.proxies))
+	}
+	for _, proxy := range state.proxies {
+		if proxy.Host == "2.2.2.2" {
+			t.Fatalf("dead proxy was not removed")
+		}
 	}
 }

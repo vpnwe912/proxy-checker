@@ -101,6 +101,7 @@ func (a *AppState) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/3proxy/start", a.handleThreeProxyStart)
 	mux.HandleFunc("/api/3proxy/stop", a.handleThreeProxyStop)
 	mux.HandleFunc("/api/export-good", a.handleExportGood)
+	mux.HandleFunc("/api/remove-dead", a.handleRemoveDead)
 }
 
 func (a *AppState) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -192,9 +193,9 @@ func (a *AppState) handleLoadURL(w http.ResponseWriter, r *http.Request) {
 	a.config.ProxyAPIURL = strings.TrimSpace(payload.URL)
 	a.mu.Unlock()
 	_ = a.SaveConfig()
-	a.setProxies(proxies)
-	a.addLog(fmt.Sprintf("Loaded %d proxies from API", len(proxies)))
-	writeJSON(w, apiResponse{OK: true, Message: fmt.Sprintf("loaded %d proxies", len(proxies))})
+	added, skipped := a.mergeProxies(proxies)
+	a.addLog(fmt.Sprintf("Loaded proxies from API: +%d new, %d duplicates skipped", added, skipped))
+	writeJSON(w, apiResponse{OK: true, Message: fmt.Sprintf("added %d proxies, skipped %d duplicates", added, skipped)})
 }
 
 func (a *AppState) handleLoadFile(w http.ResponseWriter, r *http.Request) {
@@ -223,9 +224,9 @@ func (a *AppState) handleLoadFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, apiResponse{OK: false, Message: err.Error()})
 		return
 	}
-	a.setProxies(proxies)
-	a.addLog(fmt.Sprintf("Loaded %d proxies from file %s", len(proxies), header.Filename))
-	writeJSON(w, apiResponse{OK: true, Message: fmt.Sprintf("loaded %d proxies", len(proxies))})
+	added, skipped := a.mergeProxies(proxies)
+	a.addLog(fmt.Sprintf("Loaded proxies from file %s: +%d new, %d duplicates skipped", header.Filename, added, skipped))
+	writeJSON(w, apiResponse{OK: true, Message: fmt.Sprintf("added %d proxies, skipped %d duplicates", added, skipped)})
 }
 
 func (a *AppState) handleCheck(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +322,16 @@ func (a *AppState) handleExportGood(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="good-proxies.txt"`)
 	_, _ = w.Write([]byte(strings.Join(lines, "\r\n")))
+}
+
+func (a *AppState) handleRemoveDead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	removed := a.removeDeadProxies()
+	a.addLog(fmt.Sprintf("Removed dead proxies: %d", removed))
+	writeJSON(w, apiResponse{OK: true, Message: fmt.Sprintf("removed %d dead proxies", removed)})
 }
 
 func (a *AppState) monitorLoop(ctx context.Context) {
@@ -496,6 +507,73 @@ func (a *AppState) setProxies(proxies []Proxy) {
 	a.nextIndex = 0
 }
 
+func (a *AppState) mergeProxies(proxies []Proxy) (int, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	incoming := applyProxyTypeMode(proxies, a.config.ProxyTypeMode)
+	seen := make(map[string]struct{}, len(a.proxies))
+	for _, proxy := range a.proxies {
+		seen[proxy.Key()] = struct{}{}
+	}
+	added := 0
+	skipped := 0
+	for _, proxy := range incoming {
+		key := proxy.Key()
+		if _, exists := seen[key]; exists {
+			skipped++
+			continue
+		}
+		seen[key] = struct{}{}
+		a.proxies = append(a.proxies, proxy)
+		added++
+	}
+	return added, skipped
+}
+
+func (a *AppState) removeDeadProxies() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.proxies) == 0 {
+		return 0
+	}
+	filtered := make([]Proxy, 0, len(a.proxies))
+	removed := 0
+	newResults := make(map[string]CheckResult, len(a.results))
+	for _, proxy := range a.proxies {
+		result, checked := a.results[proxy.Key()]
+		if checked && !result.OK {
+			removed++
+			continue
+		}
+		filtered = append(filtered, proxy)
+		if checked {
+			newResults[proxy.Key()] = result
+		}
+	}
+	a.proxies = filtered
+	a.results = newResults
+	if a.activeProxy != nil {
+		if _, ok := newResults[a.activeProxy.Key()]; !ok {
+			stillExists := false
+			for _, proxy := range filtered {
+				if proxy.Key() == a.activeProxy.Key() {
+					stillExists = true
+					break
+				}
+			}
+			if !stillExists {
+				a.activeProxy = nil
+			}
+		}
+	}
+	if len(filtered) == 0 {
+		a.nextIndex = 0
+	} else if a.nextIndex >= len(filtered) {
+		a.nextIndex = a.nextIndex % len(filtered)
+	}
+	return removed
+}
+
 func (a *AppState) saveResult(result CheckResult) {
 	a.mu.Lock()
 	a.results[result.Proxy.Key()] = result
@@ -585,8 +663,8 @@ func (a *AppState) importFromConfiguredAPI(ctx context.Context) {
 		a.addLog("Auto import failed: " + err.Error())
 		return
 	}
-	a.setProxies(proxies)
-	a.addLog(fmt.Sprintf("Auto import loaded proxies from API: %d", len(proxies)))
+	added, skipped := a.mergeProxies(proxies)
+	a.addLog(fmt.Sprintf("Auto import merged proxies from API: +%d new, %d duplicates skipped", added, skipped))
 }
 
 func (a *AppState) snapshotConfig() AppConfig {

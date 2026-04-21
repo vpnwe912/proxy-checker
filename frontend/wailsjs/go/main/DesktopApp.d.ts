@@ -14,6 +14,8 @@ export function LoadFilePath(arg1:string):Promise<main.apiResponse>;
 
 export function LoadURL(arg1:string):Promise<main.apiResponse>;
 
+export function RemoveDeadProxies():Promise<main.apiResponse>;
+
 export function SaveSettings(arg1:main.AppConfig):Promise<main.apiResponse>;
 
 export function SelectProxyFile():Promise<string>;
