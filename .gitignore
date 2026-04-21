@@ -1,0 +1,57 @@
+# Build artifacts
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Keep assets-src files
+!assets-src/*.png
+!assets-src/*.jpg
+
+# Runtime files with sensitive data
+runtime/
+*.cfg
+settings.json
+
+# Go
+*.test
+*.out
+go.work
+go.work.sum
+vendor/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package.json.md5
+node_modules/
+dist/
+
+# Wails
+.wails-build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.vs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.bak
+*.backup
+*.old
+*~

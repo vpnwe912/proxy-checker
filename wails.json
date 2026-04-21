@@ -1,0 +1,21 @@
+{
+    "$schema":  "https://wails.io/schemas/config.v2.json",
+    "name":  "Proxy Checker",
+    "outputfilename":  "ProxyChecker",
+    "frontend:install":  "npm install",
+    "frontend:build":  "npm run build",
+    "frontend:dev:watcher":  "npm run dev",
+    "frontend:dev:serverUrl":  "http://localhost:34115",
+    "author":  {
+                   "name":  "MuPoBoU",
+                   "email":  "MuPoBoU@gmail.com",
+                   "website":  "https://github.com/vpnwe912/proxy-checker"
+               },
+    "info":  {
+                 "productName":  "Proxy Checker",
+                 "productVersion":  "1.1.4",
+                 "description":  "Automatic proxy checking and management with 3proxy",
+                 "copyright":  "Copyright (C) 2026 Proxy Checker. All rights reserved.",
+                 "comments":  "Automatic proxy checker and 3proxy manager"
+             }
+}

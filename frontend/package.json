@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 34115",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-legacy": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {}
+}
