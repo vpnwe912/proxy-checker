@@ -499,13 +499,36 @@ go test -v -run TestParseProxyFormats
 - Проверьте доступность `testUrl`
 - Увеличьте `checkTimeoutSec` для медленных прокси
 
+## Contributing
+
+Мы приветствуем вклад в проект! Пожалуйста, ознакомьтесь с [CONTRIBUTING.md](CONTRIBUTING.md) для получения информации о:
+
+- Как сообщить об ошибке
+- Как предложить новую функцию
+- Процесс создания Pull Request
+- Стандарты кодирования
+
 ## Лицензия
 
-Этот проект использует следующие компоненты:
+Этот проект распространяется под лицензией MIT. См. файл [LICENSE](LICENSE) для подробностей.
+
+Проект использует следующие компоненты:
 - **Wails** — MIT License
 - **3proxy** — BSD-like License
 - **Go** — BSD-style License
 
+## Code of Conduct
+
+Мы придерживаемся [Code of Conduct](CODE_OF_CONDUCT.md) для создания открытого и дружелюбного сообщества.
+
+## Changelog
+
+Все изменения проекта документируются в [CHANGELOG.md](CHANGELOG.md).
+
 ## Контакты
+
+- **GitHub:** [vpnwe912/proxy-checker](https://github.com/vpnwe912/proxy-checker)
+- **Issues:** [Сообщить о проблеме](https://github.com/vpnwe912/proxy-checker/issues)
+- **Email:** MuPoBoU@ukr.net
 
 Для вопросов и предложений создавайте Issues в репозитории проекта.
