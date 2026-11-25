@@ -1,6 +1,8 @@
-import './style.css';
+﻿import './style.css';
 import {
   CheckAll,
+  StopCheckAll,
+  ClearProxies,
   ExportGoodProxies,
   GetState,
   GetVersion,
@@ -9,40 +11,26 @@ import {
   RemoveDeadProxies,
   SaveSettings,
   SelectProxyFile,
+  SetManualParent,
+  SetManualParentFromList,
+  SetParentMode,
   StartMonitor,
   StartThreeProxy,
   StopMonitor,
   StopThreeProxy,
 } from '../wailsjs/go/main/DesktopApp';
-// import {
-//   WindowMinimise,
-//   WindowToggleMaximise,
-//   Quit,
-// } from '../wailsjs/runtime/runtime';
 
 const app = document.querySelector('#app');
 
-
-  // <div class="titlebar">
-  //   <div class="titlebar-title">Proxy Checker</div>
-  //   <div class="titlebar-controls">
-  //     <button id="minimizeBtn" class="titlebar-btn" title="Свернуть">−</button>
-  //     <button id="maximizeBtn" class="titlebar-btn" title="Развернуть">□</button>
-  //     <button id="closeBtn" class="titlebar-btn titlebar-close" title="Закрыть">✕</button>
-  //   </div>
-  // </div>
-  //Этот код вставить ниже для кастомного заголовка окна
-
 app.innerHTML = `
-
-
   <header class="topbar">
     <div>
       <h1>Proxy Checker</h1>
-      <p>Прокси проверяются через URL проверки, 3proxy получает только живой parent.</p>
+      <p>Загружай прокси -> Проверить все -> Запусти 3proxy -> Настрой parent -> Старт монитор</p>
     </div>
     <div class="actions">
       <button id="checkAll">Проверить все</button>
+      <button id="stopCheck" class="secondary" style="display:none">Стоп проверку</button>
       <button id="startMonitor" class="secondary">Старт монитор</button>
       <button id="stopMonitor" class="danger">Стоп монитор</button>
     </div>
@@ -50,96 +38,200 @@ app.innerHTML = `
 
   <main class="layout">
     <section class="settings">
-      <h2>Загрузка</h2>
-      <label>API URL</label>
-      <input id="apiUrl" type="text" placeholder="https://proxy-example.comt/api/getproxy/?format=json..." />
-      <label>Тип прокси для строк без протокола</label>
-      <select id="proxyTypeMode">
-        <option value="auto">AUTO: проверить HTTP и SOCKS5</option>
-        <option value="connect">HTTP</option>
-        <option value="socks5">SOCKS5</option>
-      </select>
-      <label class="check">
-        <input id="autoImport" type="checkbox" />
-        Авто-импорт прокси из API
-      </label>
-      <label>Интервал авто-импорта</label>
-      <div class="two">
-        <input id="autoImportValue" type="number" min="1" />
-        <select id="autoImportUnit">
-          <option value="second">секунды</option>
-          <option value="minute">минуты</option>
-          <option value="day">дни</option>
-          <option value="week">недели</option>
-          <option value="month">месяцы</option>
-        </select>
-      </div>
-      <div class="button-row">
-        <button id="loadApi">Загрузить API</button>
-        <button id="loadFile" class="secondary">Выбрать файл</button>
+
+      <!-- БЛОК: ЗАГРУЗКА -->
+      <div class="collapsible-block">
+        <button class="collapse-btn" data-target="block-load">▼ Загрузка прокси</button>
+        <div id="block-load" class="collapse-body">
+          <label>API URL</label>
+          <input id="apiUrl" type="text" placeholder="https://proxy-example.com/api/..." />
+          <label>Тип прокси для строк без протокола</label>
+          <select id="proxyTypeMode">
+            <option value="auto">AUTO: проверить HTTP и SOCKS5</option>
+            <option value="connect">HTTP</option>
+            <option value="socks5">SOCKS5</option>
+          </select>
+          <label class="check">
+            <input id="autoImport" type="checkbox" />
+            Авто-импорт прокси из API
+          </label>
+          <label>Интервал авто-импорта</label>
+          <div class="two">
+            <input id="autoImportValue" type="number" min="1" />
+            <select id="autoImportUnit">
+              <option value="second">секунды</option>
+              <option value="minute">минуты</option>
+              <option value="day">дни</option>
+              <option value="week">недели</option>
+              <option value="month">месяцы</option>
+            </select>
+          </div>
+          <div class="button-row">
+            <button id="loadApi">Загрузить API</button>
+            <button id="loadFile" class="secondary">Выбрать файл</button>
+          </div>
+          <button id="clearProxies" class="danger" style="width:100%;margin-top:6px">Очистить список прокси</button>
+        </div>
       </div>
 
-      <h2>Проверка</h2>
-      <label>URL проверки</label>
-      <input id="testUrl" type="text" />
-      <div class="two">
-        <div>
-          <label>Timeout, сек</label>
-          <input id="checkTimeoutSec" type="number" min="1" />
-        </div>
-        <div>
-          <label>Потоков</label>
-          <input id="workers" type="number" min="1" />
+      <!-- БЛОК: ПРОВЕРКА -->
+      <div class="collapsible-block">
+        <button class="collapse-btn" data-target="block-check">▼ Проверка прокси</button>
+        <div id="block-check" class="collapse-body">
+          <label>URL проверки</label>
+          <input id="testUrl" type="text" />
+          <div class="two">
+            <div>
+              <label>Timeout, сек</label>
+              <input id="checkTimeoutSec" type="number" min="1" />
+            </div>
+            <div>
+              <label>Потоков</label>
+              <input id="workers" type="number" min="1" />
+            </div>
+          </div>
+          <label class="check">
+            <input id="geoLookup" type="checkbox" />
+            Определять страну, регион и часовой пояс
+          </label>
+          <label>Geo provider</label>
+          <select id="geoProvider">
+            <option value="auto">AUTO: много источников подряд</option>
+            <option value="2ip">2ip</option>
+            <option value="2ip_json">2ip JSON</option>
+            <option value="ipinfo">ipinfo</option>
+            <option value="ipapi">ip-api.com</option>
+            <option value="ifconfig">ifconfig.co</option>
+            <option value="ipwhois">ipwho.is</option>
+            <option value="ipapi_co">ipapi.co</option>
+            <option value="ip_sb">api.ip.sb</option>
+          </select>
+          <label>URL geo API</label>
+          <input id="geoLookupUrl" type="text" placeholder="Провайдер подставит URL автоматически" />
+          <label class="check">
+            <input id="allowInsecure" type="checkbox" />
+            TLS без строгой проверки, как curl --insecure
+          </label>
+          <label>Авто-перепроверка всех прокси (сек, 0 = выключено)</label>
+          <input id="recheckEverySec" type="number" min="0" placeholder="0" />
+          <p class="hint">Монитор будет автоматически перезапускать проверку всех прокси с указанным интервалом. Требует запущенного монитора.</p>
+          <button id="saveSettings">Сохранить настройки</button>
         </div>
       </div>
-      <label>Интервал монитора, сек</label>
-      <input id="monitorEverySec" type="number" min="5" />
-      <p class="hint">Это интервал смены IP: монитор обновляет parent.cfg и дергает reload.txt каждые N секунд.</p>
-      <label class="check">
-        <input id="geoLookup" type="checkbox" />
-        Определять страну, регион и часовой пояс
-      </label>
-      <label>Geo provider</label>
-      <select id="geoProvider">
-        <option value="auto">AUTO: много источников подряд</option>
-        <option value="2ip">2ip</option>
-        <option value="2ip_json">2ip JSON</option>
-        <option value="ipinfo">ipinfo</option>
-        <option value="ipapi">ip-api.com</option>
-        <option value="ifconfig">ifconfig.co</option>
-        <option value="ipwhois">ipwho.is</option>
-        <option value="ipapi_co">ipapi.co</option>
-        <option value="ip_sb">api.ip.sb</option>
-      </select>
-      <label>URL geo API</label>
-      <input id="geoLookupUrl" type="text" placeholder="Провайдер подставит URL автоматически" />
-      <label class="check">
-        <input id="allowInsecure" type="checkbox" />
-        TLS без строгой проверки, как curl --insecure
-      </label>
-      <button id="saveSettings">Сохранить настройки</button>
 
-      <h2>3proxy</h2>
-      <label>Путь к 3proxy.exe, если не встроен</label>
-      <input id="exePath" type="text" placeholder="Можно оставить пустым для embedded/3proxy" />
-      <label>Рабочая папка</label>
-      <input id="workDir" type="text" />
-      <div class="two">
-        <div>
-          <label>Proxy port</label>
-          <input id="proxyPort" type="text" />
-        </div>
-        <div>
-          <label>Admin port</label>
-          <input id="adminPort" type="text" />
+      <!-- БЛОК: 3PROXY -->
+      <div class="collapsible-block">
+        <button class="collapse-btn" data-target="block-3proxy">▼ 3proxy</button>
+        <div id="block-3proxy" class="collapse-body">
+          <label>Путь к 3proxy.exe, если не встроен</label>
+          <input id="exePath" type="text" placeholder="Можно оставить пустым для embedded/3proxy" />
+          <label>Рабочая папка</label>
+          <input id="workDir" type="text" />
+          <div class="two">
+            <div>
+              <label>Proxy port</label>
+              <input id="proxyPort" type="text" />
+            </div>
+            <div>
+              <label>Admin port</label>
+              <input id="adminPort" type="text" />
+            </div>
+          </div>
+          <label>Allowed IP</label>
+          <input id="allowedIp" type="text" />
+          <div class="button-row">
+            <button id="start3proxy" class="secondary">Запустить 3proxy</button>
+            <button id="stop3proxy" class="danger">Остановить</button>
+          </div>
         </div>
       </div>
-      <label>Allowed IP</label>
-      <input id="allowedIp" type="text" />
-      <div class="button-row">
-        <button id="start3proxy" class="secondary">Запустить 3proxy</button>
-        <button id="stop3proxy" class="danger">Остановить</button>
+
+      <!-- БЛОК: УПРАВЛЕНИЕ PARENT -->
+      <div class="collapsible-block">
+        <button class="collapse-btn" data-target="block-parent">▼ Управление parent</button>
+        <div id="block-parent" class="collapse-body">
+
+          <div class="mode-tabs">
+            <button class="mode-tab active" id="tabAuto" data-mode="auto">Авто</button>
+            <button class="mode-tab" id="tabManual" data-mode="manual">Ручной</button>
+          </div>
+
+          <!-- АВТО: монитор переключает из проверенных -->
+          <div id="autoParentBlock" class="mode-panel">
+            <p class="hint">Монитор каждые N секунд берёт следующий рабочий прокси из таблицы и применяет как parent 3proxy. Сначала запусти <b>Проверить все</b>.</p>
+            <label>Интервал смены parent (сек)</label>
+            <input id="monitorEverySec" type="number" min="5" placeholder="120" />
+            <label>Страна (фильтр пула, пусто = любая)</label>
+            <select id="monitorCountrySelect">
+              <option value="">Любая страна</option>
+            </select>
+            <p class="hint" id="autoParentStatus"></p>
+            <button id="saveMonitorSettings" class="secondary" style="width:100%;margin-top:8px">Сохранить и применить</button>
+          </div>
+
+          <!-- РУЧНОЙ: фиксированный прокси -->
+          <div id="manualParentBlock" class="mode-panel hidden">
+            <p class="hint">Укажите конкретный прокси. Монитор будет применять только его, без автоматической смены.</p>
+
+            <div class="sub-section">
+              <p class="sub-label">Выбрать из проверенных</p>
+              <label>Фильтр по стране</label>
+              <select id="parentCountryFilter">
+                <option value="all">Все страны</option>
+              </select>
+              <div class="proxy-select-opts">
+                <label class="cb-label"><input type="checkbox" id="showLabel" checked> Метка</label>
+                <label class="cb-label"><input type="checkbox" id="showIP"> IP</label>
+              </div>
+              <div class="proxy-search-wrap">
+                <input type="text" id="parentProxySearch" placeholder="Поиск по метке или IP..." autocomplete="off">
+                <div id="parentProxyList" class="proxy-dropdown hidden"></div>
+                <input type="hidden" id="parentProxySelect">
+              </div>
+              <button id="applyFromList" class="secondary" style="width:100%;margin-top:8px">Применить выбранный</button>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="sub-section">
+              <p class="sub-label">Ввести вручную</p>
+              <div class="two">
+                <div>
+                  <label>IP / хост</label>
+                  <input id="manualHost" type="text" placeholder="1.2.3.4" />
+                </div>
+                <div>
+                  <label>Порт</label>
+                  <input id="manualPort" type="text" placeholder="1080" />
+                </div>
+              </div>
+              <label>Тип</label>
+              <select id="manualType">
+                <option value="socks5">SOCKS5</option>
+                <option value="connect">HTTP</option>
+              </select>
+              <div class="two" style="margin-top:6px">
+                <div>
+                  <label>Логин</label>
+                  <input id="manualLogin" type="text" placeholder="(необязательно)" />
+                </div>
+                <div>
+                  <label>Пароль</label>
+                  <input id="manualPassword" type="text" placeholder="(необязательно)" />
+                </div>
+              </div>
+              <div class="button-row" style="margin-top:8px">
+                <button id="applyManualParent" class="secondary">Применить</button>
+                <button id="clearManualParent" class="danger">Сбросить</button>
+              </div>
+            </div>
+
+            <div id="currentManualParent" class="active-parent-badge active-parent-none" style="display:none"></div>
+          </div>
+
+        </div>
       </div>
+
     </section>
 
     <section class="workspace">
@@ -154,7 +246,7 @@ app.innerHTML = `
         <div class="section-head">
           <div>
             <h2>Прокси</h2>
-            <p id="active" class="muted">Активный parent: нет</p>
+            <div id="active" class="active-parent-badge active-parent-none">Активный parent: нет</div>
           </div>
           <div class="actions">
             <button id="removeDead" class="danger">Удалить FAIL</button>
@@ -180,7 +272,7 @@ app.innerHTML = `
         </div>
         <table>
           <thead>
-            <tr><th>Прокси</th><th>Тип</th><th>Логин</th><th>Статус</th><th>Страна</th><th>Регион</th><th>Часовой пояс</th><th>HTTP / ошибка</th><th>Время</th></tr>
+            <tr><th>Прокси</th><th>Тип</th><th>Логин</th><th>Метка</th><th>Статус</th><th>Страна</th><th>Регион</th><th>HTTP / ошибка</th><th>Время</th></tr>
           </thead>
           <tbody id="proxyRows"></tbody>
         </table>
@@ -207,22 +299,96 @@ app.innerHTML = `
 `;
 
 let state = null;
-let isBusy = false;
 let settingsDirty = false;
 let applyingSettings = false;
 let filtersBound = false;
 
 const el = (id) => document.getElementById(id);
 
+// --- Сворачиваемые блоки ---
+document.querySelectorAll('.collapse-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const targetId = btn.dataset.target;
+    const body = document.getElementById(targetId);
+    const collapsed = body.classList.toggle('collapsed');
+    btn.textContent = btn.textContent.replace(collapsed ? '▼' : '▶', collapsed ? '▶' : '▼');
+  });
+});
+
+// --- Табы режима parent ---
+function setParentMode(mode) {
+  el('tabAuto').classList.toggle('active', mode === 'auto');
+  el('tabManual').classList.toggle('active', mode === 'manual');
+  el('autoParentBlock').classList.toggle('hidden', mode !== 'auto');
+  el('manualParentBlock').classList.toggle('hidden', mode !== 'manual');
+}
+
+document.querySelectorAll('.mode-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const mode = tab.dataset.mode;
+    setParentMode(mode);
+    run(() => SetParentMode(mode));
+  });
+});
+
+el('saveMonitorSettings').addEventListener('click', () => run(saveSettings));
+
+el('applyFromList').addEventListener('click', () => {
+  const key = el('parentProxySelect').value;
+  if (!key) { showToast('Выберите прокси из списка', false); return; }
+  run(() => SetManualParentFromList(key));
+});
+
+el('applyManualParent').addEventListener('click', () => {
+  const host = el('manualHost').value.trim();
+  const port = el('manualPort').value.trim();
+  if (!host || !port) { showToast('Введите хост и порт', false); return; }
+  run(() => SetManualParent(host, port, el('manualType').value, el('manualLogin').value.trim(), el('manualPassword').value.trim()));
+});
+
+el('clearManualParent').addEventListener('click', () => {
+  run(() => SetManualParent('', '', '', '', ''));
+});
+
+el('clearProxies').addEventListener('click', () => {
+  run(() => ClearProxies());
+});
+
+el('parentCountryFilter').addEventListener('change', () => {
+  if (state) syncParentProxySelect(state.proxies || [], buildResultMap(state.results || []));
+});
+
+el('showLabel').addEventListener('change', () => {
+  if (state) syncParentProxySelect(state.proxies || [], buildResultMap(state.results || []));
+});
+el('showIP').addEventListener('change', () => {
+  if (state) syncParentProxySelect(state.proxies || [], buildResultMap(state.results || []));
+});
+
+el('parentProxySearch').addEventListener('input', () => {
+  renderProxyDropdown(el('parentProxySearch').value);
+  el('parentProxySelect').value = '';
+});
+el('parentProxySearch').addEventListener('focus', () => {
+  renderProxyDropdown(el('parentProxySearch').value);
+});
+el('parentProxySearch').addEventListener('blur', () => {
+  setTimeout(() => el('parentProxyList').classList.add('hidden'), 150);
+});
+
 async function refresh() {
-  state = await GetState();
+  try {
+    const s = await GetState();
+    if (!s || !s.proxies) return;
+    state = s;
+  } catch (e) {
+    return;
+  }
   if (!settingsDirty) fillSettings(state.config);
 
-  const resultByKey = new Map();
+  const resultByKey = buildResultMap(state.results || []);
   let good = 0;
   for (const result of state.results || []) {
-    const key = proxyKey(result.proxy);
-    resultByKey.set(key, result);
     if (result.ok) good += 1;
   }
 
@@ -230,25 +396,83 @@ async function refresh() {
   el('good').textContent = good;
   el('monitor').textContent = state.monitorRunning ? 'on' : 'off';
   el('threeproxy').textContent = state.threeProxyRun ? 'on' : 'off';
-  el('active').textContent = state.activeProxy
-    ? `Активный parent: ${state.activeProxy.host}:${state.activeProxy.port}`
-    : 'Активный parent: нет';
+  // Кнопки проверки
+  const checkBtn = el('checkAll');
+  const stopCheckBtn = el('stopCheck');
+  if (state.checkRunning) {
+    checkBtn.textContent = 'Проверка...';
+    checkBtn.disabled = true;
+    stopCheckBtn.style.display = '';
+  } else {
+    checkBtn.textContent = 'Проверить все';
+    checkBtn.disabled = false;
+    stopCheckBtn.style.display = 'none';
+  }
+  const activeEl = el('active');
+  if (state.activeProxy) {
+    const ap = state.activeProxy;
+    const labelPart = ap.label ? `<span class="active-parent-label">${escapeHtml(ap.label)}</span>` : '';
+    activeEl.innerHTML = `Активный parent: <span class="active-parent-ip">${escapeHtml(ap.host)}</span><span class="active-parent-port">:${escapeHtml(ap.port)}</span>${labelPart}`;
+    activeEl.className = 'active-parent-badge active-parent-on';
+  } else {
+    activeEl.textContent = 'Активный parent: нет';
+    activeEl.className = 'active-parent-badge active-parent-none';
+  }
+
+  // Синхронизируем режим parent (без сброса если пользователь уже нажал таб)
+  const mode = state.parentMode || 'auto';
+  setParentMode(mode);
+
+  // Статус авто-parent
+  const autoStatus = el('autoParentStatus');
+  if (state.activeProxy && mode === 'auto') {
+    autoStatus.textContent = `Активный: ${state.activeProxy.host}:${state.activeProxy.port}`;
+    autoStatus.style.color = '#27ae60';
+  } else if (mode === 'auto') {
+    autoStatus.textContent = good > 0 ? `Готово ${good} прокси. Запусти монитор.` : 'Нет проверенных прокси. Нажми "Проверить все".';
+    autoStatus.style.color = '#888';
+  }
+
+  const manualBadge = el('currentManualParent');
+  if (state.manualParent) {
+    const mp = state.manualParent;
+    const labelPart = mp.label ? `<span class="active-parent-label">${escapeHtml(mp.label)}</span>` : '';
+    manualBadge.innerHTML = `Применён: <span class="active-parent-ip">${escapeHtml(mp.host)}</span><span class="active-parent-port">:${escapeHtml(mp.port)}</span>${labelPart}`;
+    manualBadge.className = 'active-parent-badge active-parent-on';
+    manualBadge.style.display = '';
+  } else if (mode === 'manual') {
+    manualBadge.textContent = 'Не установлен — трафик заблокирован';
+    manualBadge.className = 'active-parent-badge active-parent-none';
+    manualBadge.style.display = '';
+  } else {
+    manualBadge.style.display = 'none';
+  }
 
   const cfg = state.config.threeProxy;
   el('paths').textContent = [
     `3proxy.cfg: ${cfg.workDir}\\3proxy.cfg`,
-    `parent.cfg: ${cfg.workDir}\\parent.cfg`,
     `reload.txt: ${cfg.workDir}\\reload.txt`,
     `embedded: ${cfg.workDir}\\embedded-3proxy`,
   ].join('\n');
 
   el('logs').textContent = (state.logs || []).slice().reverse().join('\n');
   syncCountryFilter(state.proxies, resultByKey);
+  syncMonitorCountrySelect(state.proxies, resultByKey, state.config.monitorCountry || '');
+  syncParentProxySelect(state.proxies, resultByKey);
+
   const filteredRows = state.proxies
     .map((proxy) => ({ proxy, result: resultByKey.get(proxyKey(proxy)) }))
     .filter(({ proxy, result }) => matchesFilters(proxy, result))
     .map(({ proxy, result }) => proxyRow(proxy, result));
   el('proxyRows').innerHTML = filteredRows.join('');
+}
+
+function buildResultMap(results) {
+  const map = new Map();
+  for (const result of results) {
+    map.set(proxyKey(result.proxy), result);
+  }
+  return map;
 }
 
 function proxyRow(proxy, result) {
@@ -273,10 +497,10 @@ function proxyRow(proxy, result) {
       <td>${escapeHtml(proxy.host)}:${escapeHtml(proxy.port)}</td>
       <td>${escapeHtml(proxyTypeLabel(effectiveType))}</td>
       <td>${escapeHtml(proxy.login || '')}</td>
+      <td>${proxy.label ? `<span class="proxy-label">${escapeHtml(proxy.label)}</span>` : ''}</td>
       <td>${status}</td>
       <td>${escapeHtml(country)}</td>
       <td>${escapeHtml(region)}</td>
-      <td>${escapeHtml(timezone)}</td>
       <td>${escapeHtml(String(code))}</td>
       <td>${escapeHtml(duration)}</td>
     </tr>`;
@@ -293,12 +517,12 @@ function fillSettings(config) {
   setValue('checkTimeoutSec', config.checkTimeoutSec);
   setValue('workers', config.workers);
   setValue('monitorEverySec', config.monitorEverySec);
+  setValue('recheckEverySec', config.recheckEverySec || 0);
   el('geoLookup').checked = Boolean(config.geoLookup);
   setValue('geoProvider', config.geoProvider || 'auto');
   setValue('geoLookupUrl', config.geoLookupUrl || 'https://ipinfo.io/json');
   syncGeoLookupUrl();
   el('allowInsecure').checked = Boolean(config.allowInsecure);
-
   const tp = config.threeProxy;
   setValue('exePath', tp.exePath);
   setValue('workDir', tp.workDir);
@@ -319,6 +543,8 @@ function readSettings() {
   config.checkTimeoutSec = numberValue('checkTimeoutSec');
   config.workers = numberValue('workers');
   config.monitorEverySec = numberValue('monitorEverySec');
+  config.recheckEverySec = numberValue('recheckEverySec');
+  config.monitorCountry = el('monitorCountrySelect').value || '';
   config.geoLookup = el('geoLookup').checked;
   config.geoProvider = value('geoProvider') || 'auto';
   config.geoLookupUrl = value('geoLookupUrl');
@@ -332,17 +558,12 @@ function readSettings() {
 }
 
 async function run(action) {
-  if (isBusy) return;
-  isBusy = true;
-  document.body.classList.add('busy');
   try {
     const response = await action();
     if (response?.message) showToast(response.message, response.ok);
   } catch (error) {
     showToast(error.message || String(error), false);
   } finally {
-    isBusy = false;
-    document.body.classList.remove('busy');
     await refresh();
   }
 }
@@ -359,6 +580,7 @@ el('checkAll').addEventListener('click', () => run(async () => {
   await saveSettings();
   return CheckAll();
 }));
+el('stopCheck').addEventListener('click', () => run(() => StopCheckAll()));
 el('startMonitor').addEventListener('click', () => run(async () => {
   await saveSettings();
   return StartMonitor();
@@ -379,6 +601,7 @@ el('loadFile').addEventListener('click', () => run(async () => {
 
 function setValue(id, next) {
   const input = el(id);
+  if (!input) return;
   if (document.activeElement !== input) input.value = next ?? '';
 }
 
@@ -389,7 +612,8 @@ function setAutoImportInterval(seconds, unit) {
 }
 
 function value(id) {
-  return el(id).value.trim();
+  const input = el(id);
+  return input ? input.value.trim() : '';
 }
 
 function numberValue(id) {
@@ -434,6 +658,7 @@ function proxyTypeLabel(type) {
 function syncGeoLookupUrl() {
   const provider = value('geoProvider') || 'auto';
   const input = el('geoLookupUrl');
+  if (!input) return;
   const defaults = {
     auto: 'AUTO: 2ip.ua/json -> 2ip.ua -> ipwho.is -> ifconfig.co -> ipapi.co -> ip-api.com -> ipinfo.io -> api.ip.sb',
     '2ip': 'https://2ip.ua',
@@ -450,19 +675,106 @@ function syncGeoLookupUrl() {
   input.disabled = true;
 }
 
-function syncCountryFilter(proxies, resultByKey) {
-  const select = el('countryFilter');
-  const current = select.value || 'all';
+function collectCountries(proxies, resultByKey, okOnly) {
   const countries = new Set();
   for (const proxy of proxies) {
     const result = resultByKey.get(proxyKey(proxy));
+    if (okOnly && !result?.ok) continue;
     const country = (result?.geo?.country || '').trim();
     if (country) countries.add(country);
   }
+  return Array.from(countries).sort();
+}
+
+function syncCountryFilter(proxies, resultByKey) {
+  const select = el('countryFilter');
+  const current = select.value || 'all';
+  const countries = collectCountries(proxies, resultByKey, false);
   select.innerHTML = ['<option value="all">Все страны</option>']
-    .concat(Array.from(countries).sort().map((country) => `<option value="${escapeHtml(country)}">${escapeHtml(country)}</option>`))
+    .concat(countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
     .join('');
-  select.value = countries.has(current) || current === 'all' ? current : 'all';
+  select.value = countries.includes(current) || current === 'all' ? current : 'all';
+}
+
+function syncMonitorCountrySelect(proxies, resultByKey, currentValue) {
+  const select = el('monitorCountrySelect');
+  const countries = collectCountries(proxies, resultByKey, true);
+  const prev = select.value || currentValue || '';
+  select.innerHTML = ['<option value="">Любая страна</option>']
+    .concat(countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
+    .join('');
+  if (prev && countries.includes(prev)) select.value = prev;
+  else select.value = '';
+}
+
+// Глобальный кеш прокси для поиска
+let _parentProxyItems = [];
+
+function buildProxyDisplayLabel(proxy, country) {
+  const showLabel = el('showLabel').checked;
+  const showIP = el('showIP').checked;
+  const hasLabel = !!proxy.label;
+  const parts = [];
+  if (showIP || !hasLabel) parts.push(`${proxy.host}:${proxy.port}${country ? ' [' + country + ']' : ''}`);
+  if (showLabel && hasLabel) parts.push(proxy.label);
+  return parts.join(' | ') || `${proxy.host}:${proxy.port}`;
+}
+
+function renderProxyDropdown(filter) {
+  const list = el('parentProxyList');
+  const q = (filter || '').toLowerCase().trim();
+  const filtered = q
+    ? _parentProxyItems.filter((item) => item.searchText.includes(q))
+    : _parentProxyItems;
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="proxy-dropdown-empty">Ничего не найдено</div>';
+  } else {
+    list.innerHTML = filtered
+      .map((item) => `<div class="proxy-dropdown-item" data-key="${escapeHtml(item.key)}">${escapeHtml(item.label)}</div>`)
+      .join('');
+    list.querySelectorAll('.proxy-dropdown-item').forEach((row) => {
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectParentProxy(row.dataset.key, row.textContent);
+      });
+    });
+  }
+  list.classList.remove('hidden');
+}
+
+function selectParentProxy(key, label) {
+  el('parentProxySelect').value = key;
+  el('parentProxySearch').value = label;
+  el('parentProxyList').classList.add('hidden');
+}
+
+function syncParentProxySelect(proxies, resultByKey) {
+  const countryFilter = el('parentCountryFilter').value || 'all';
+
+  const countrySel = el('parentCountryFilter');
+  const currentCountry = countrySel.value || 'all';
+  const countries = collectCountries(proxies, resultByKey, true);
+  countrySel.innerHTML = ['<option value="all">Все страны</option>']
+    .concat(countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`))
+    .join('');
+  countrySel.value = countries.includes(currentCountry) || currentCountry === 'all' ? currentCountry : 'all';
+
+  const currentKey = el('parentProxySelect').value;
+  _parentProxyItems = [];
+  for (const proxy of proxies) {
+    const result = resultByKey.get(proxyKey(proxy));
+    if (!result?.ok) continue;
+    const country = result?.geo?.country || '';
+    if (countryFilter !== 'all' && country !== countryFilter) continue;
+    const key = proxyKey(proxy);
+    const label = buildProxyDisplayLabel(proxy, country);
+    _parentProxyItems.push({ key, label, searchText: (label + ' ' + (proxy.label || '') + ' ' + proxy.host).toLowerCase() });
+  }
+  // Восстанавливаем выбранный элемент если он ещё есть
+  if (currentKey) {
+    const found = _parentProxyItems.find((i) => i.key === currentKey);
+    if (found) el('parentProxySearch').value = found.label;
+  }
 }
 
 function matchesFilters(proxy, result) {
@@ -475,14 +787,8 @@ function matchesFilters(proxy, result) {
   return true;
 }
 
-function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[char]));
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function showToast(message, ok = true) {
@@ -490,44 +796,22 @@ function showToast(message, ok = true) {
   toast.textContent = message;
   toast.className = `toast show ${ok ? 'success' : 'error'}`;
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => {
-    toast.className = 'toast';
-  }, 3200);
+  showToast.timer = window.setTimeout(() => { toast.className = 'toast'; }, 3200);
 }
 
 async function loadVersionInfo() {
   try {
     const version = await GetVersion();
-    const info = [
-      `${version.productName} v${version.version}`,
-      version.author ? `by ${version.author}` : '',
-    ].filter(Boolean).join(' • ');
+    const info = [`${version.productName} v${version.version}`, version.author ? `by ${version.author}` : ''].filter(Boolean).join(' - ');
     el('appInfo').textContent = info;
-    el('appInfo').title = [
-      `Product: ${version.productName}`,
-      `Version: ${version.version}`,
-      `Description: ${version.description || 'N/A'}`,
-      `Author: ${version.author || 'N/A'}`,
-      `Email: ${version.email || 'N/A'}`,
-      `Website: ${version.website || 'N/A'}`,
-      `Copyright: ${version.copyright || 'N/A'}`,
-    ].join('\n');
-    
-    // Make website clickable
     if (version.website) {
       el('appInfo').style.cursor = 'pointer';
       el('appInfo').onclick = () => window.open(version.website, '_blank');
     }
   } catch (err) {
     el('appInfo').textContent = 'Proxy Checker';
-    console.error('Failed to load version:', err);
   }
 }
-
-// Управление окном
-// el('minimizeBtn').addEventListener('click', () => WindowMinimise());
-// el('maximizeBtn').addEventListener('click', () => WindowToggleMaximise());
-// el('closeBtn').addEventListener('click', () => Quit());
 
 refresh();
 loadVersionInfo();
@@ -542,11 +826,7 @@ if (!filtersBound) {
   });
 }
 document.querySelectorAll('.settings input, .settings select').forEach((input) => {
-  input.addEventListener('input', () => {
-    if (!applyingSettings) settingsDirty = true;
-  });
-  input.addEventListener('change', () => {
-    if (!applyingSettings) settingsDirty = true;
-  });
+  input.addEventListener('input', () => { if (!applyingSettings) settingsDirty = true; });
+  input.addEventListener('change', () => { if (!applyingSettings) settingsDirty = true; });
 });
 window.setInterval(refresh, 2000);

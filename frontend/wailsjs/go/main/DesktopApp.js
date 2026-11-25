@@ -6,6 +6,10 @@ export function CheckAll() {
   return window['go']['main']['DesktopApp']['CheckAll']();
 }
 
+export function ClearProxies() {
+  return window['go']['main']['DesktopApp']['ClearProxies']();
+}
+
 export function ExportGoodProxies() {
   return window['go']['main']['DesktopApp']['ExportGoodProxies']();
 }
@@ -38,12 +42,28 @@ export function SelectProxyFile() {
   return window['go']['main']['DesktopApp']['SelectProxyFile']();
 }
 
+export function SetManualParent(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['DesktopApp']['SetManualParent'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function SetManualParentFromList(arg1) {
+  return window['go']['main']['DesktopApp']['SetManualParentFromList'](arg1);
+}
+
+export function SetParentMode(arg1) {
+  return window['go']['main']['DesktopApp']['SetParentMode'](arg1);
+}
+
 export function StartMonitor() {
   return window['go']['main']['DesktopApp']['StartMonitor']();
 }
 
 export function StartThreeProxy() {
   return window['go']['main']['DesktopApp']['StartThreeProxy']();
+}
+
+export function StopCheckAll() {
+  return window['go']['main']['DesktopApp']['StopCheckAll']();
 }
 
 export function StopMonitor() {

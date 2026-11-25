@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #eef3f0;
   --surface: #ffffff;
   --ink: #17211c;
@@ -8,6 +8,7 @@
   --red: #b3261e;
   --blue: #1769aa;
   --amber: #947000;
+  --accent: #167846;
 }
 
 * {
@@ -21,6 +22,7 @@ body {
   color: var(--ink);
   background: var(--bg);
   font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
 }
 
 .titlebar {
@@ -36,7 +38,7 @@ body {
 }
 
 .titlebar-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -170,13 +172,13 @@ label {
   display: block;
   margin: 10px 0 5px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .hint {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -245,7 +247,7 @@ select {
 
 .section-head p {
   margin-top: 5px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .filters {
@@ -268,7 +270,7 @@ td {
   overflow-wrap: anywhere;
   text-align: left;
   vertical-align: top;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 th {
@@ -343,7 +345,7 @@ pre {
   color: var(--muted);
   background: var(--surface);
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .app-info {
@@ -352,4 +354,269 @@ pre {
 
 .app-info:hover {
   color: var(--ink);
+}
+
+/* --- Сворачиваемые блоки --- */
+.collapsible-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.collapse-btn {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  background: #eef4f0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 0;
+  min-height: unset;
+  cursor: pointer;
+}
+
+.collapse-btn:hover {
+  background: #ddeae3;
+}
+
+.collapse-body {
+  padding: 12px 14px 14px;
+  background: var(--surface);
+}
+
+.collapse-body.collapsed {
+  display: none;
+}
+
+/* --- Блок ручного parent --- */
+.manual-parent-block {
+  margin-top: 10px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.proxy-search-wrap {
+  position: relative;
+  margin-top: 6px;
+}
+
+.proxy-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+.proxy-dropdown-item {
+  padding: 8px 10px;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proxy-dropdown-item:hover {
+  background: #f0f7f0;
+  color: #167846;
+}
+
+.proxy-dropdown-empty {
+  padding: 8px 10px;
+  font-size: 15px;
+  color: #999;
+}
+
+.proxy-select-opts {
+  display: flex;
+  gap: 12px;
+  margin: 4px 0 6px;
+}
+
+.cb-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.cb-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.proxy-label {
+  display: inline-block;
+  background: #e8f4e8;
+  color: #167846;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+td:has(.proxy-label) {
+  max-width: 170px;
+  overflow: hidden;
+}
+
+.radio-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.separator {
+  border-top: 1px solid var(--line);
+  margin: 12px 0;
+}
+
+/* Убираем лишний padding в settings т.к. теперь используем collapsible-block */
+.settings {
+  padding: 10px;
+}
+
+.settings h2 {
+  display: none;
+}
+/* --- Табы авто/ручной parent --- */
+.mode-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: #e8ede9;
+  color: #444;
+  border: none;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: unset;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-tab.active {
+  background: #167846;
+  color: #ffffff;
+}
+
+.mode-tab:not(.active):hover {
+  background: #d4e4db;
+  color: #17211c;
+}
+
+.mode-panel {
+  padding-top: 4px;
+}
+
+/* --- Подсекции в ручном режиме --- */
+.sub-section {
+  background: #f8faf9;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.sub-label {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #888;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.5px;
+}
+
+.active-parent-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 20px;
+  border-radius: 28px;
+  font-size: 16px;
+  font-weight: 500;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.active-parent-none {
+  background: #f2f2f2;
+  color: #888;
+  border: 1px solid #ddd;
+}
+
+.active-parent-on {
+  background: #e6f4ec;
+  color: #167846;
+  border: 1px solid #a8d5b8;
+}
+
+.active-parent-on strong {
+  font-weight: 700;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.active-parent-ip {
+  background: #167846;
+  color: #fff;
+  border-radius: 14px;
+  padding: 4px 16px;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.active-parent-port {
+  font-size: 15px;
+  color: #4a9a6a;
+  font-family: monospace;
+  margin-right: 2px;
+}
+
+.active-parent-label {
+  background: #0d5c36;
+  color: #fff;
+  border-radius: 14px;
+  padding: 4px 14px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.active-hint {
+  color: #27ae60;
+  font-weight: 500;
 }

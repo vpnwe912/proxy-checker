@@ -46,6 +46,8 @@ export namespace main {
 	    workers: number;
 	    allowInsecure: boolean;
 	    useCurl: boolean;
+	    monitorCountry: string;
+	    recheckEverySec: number;
 	    threeProxy: ThreeProxySettings;
 	
 	    static createFrom(source: any = {}) {
@@ -69,6 +71,8 @@ export namespace main {
 	        this.workers = source["workers"];
 	        this.allowInsecure = source["allowInsecure"];
 	        this.useCurl = source["useCurl"];
+	        this.monitorCountry = source["monitorCountry"];
+	        this.recheckEverySec = source["recheckEverySec"];
 	        this.threeProxy = this.convertValues(source["threeProxy"], ThreeProxySettings);
 	    }
 	
@@ -115,6 +119,7 @@ export namespace main {
 	    password?: string;
 	    type: string;
 	    source?: string;
+	    label?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Proxy(source);
@@ -128,6 +133,7 @@ export namespace main {
 	        this.password = source["password"];
 	        this.type = source["type"];
 	        this.source = source["source"];
+	        this.label = source["label"];
 	    }
 	}
 	export class CheckResult {
@@ -182,7 +188,10 @@ export namespace main {
 	    results: CheckResult[];
 	    logs: string[];
 	    activeProxy?: Proxy;
+	    manualParent?: Proxy;
+	    parentMode: string;
 	    monitorRunning: boolean;
+	    checkRunning: boolean;
 	    importRunning: boolean;
 	    threeProxyRun: boolean;
 	
@@ -197,7 +206,10 @@ export namespace main {
 	        this.results = this.convertValues(source["results"], CheckResult);
 	        this.logs = source["logs"];
 	        this.activeProxy = this.convertValues(source["activeProxy"], Proxy);
+	        this.manualParent = this.convertValues(source["manualParent"], Proxy);
+	        this.parentMode = source["parentMode"];
 	        this.monitorRunning = source["monitorRunning"];
+	        this.checkRunning = source["checkRunning"];
 	        this.importRunning = source["importRunning"];
 	        this.threeProxyRun = source["threeProxyRun"];
 	    }

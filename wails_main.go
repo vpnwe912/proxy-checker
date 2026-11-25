@@ -57,7 +57,10 @@ type StateSnapshot struct {
 	Results        []CheckResult `json:"results"`
 	Logs           []string      `json:"logs"`
 	ActiveProxy    *Proxy        `json:"activeProxy"`
+	ManualParent   *Proxy        `json:"manualParent"`
+	ParentMode     string        `json:"parentMode"`
 	MonitorRunning bool          `json:"monitorRunning"`
+	CheckRunning   bool          `json:"checkRunning"`
 	ImportRunning  bool          `json:"importRunning"`
 	ThreeProxyRun  bool          `json:"threeProxyRun"`
 }
@@ -93,19 +96,28 @@ func (a *DesktopApp) Shutdown(ctx context.Context) {
 
 func (a *DesktopApp) GetState() StateSnapshot {
 	a.state.mu.Lock()
-	proxies := append([]Proxy(nil), a.state.proxies...)
+	proxies := make([]Proxy, len(a.state.proxies))
+	copy(proxies, a.state.proxies)
 	results := make([]CheckResult, 0, len(a.state.results))
 	for _, result := range a.state.results {
 		results = append(results, result)
 	}
-	logs := append([]string(nil), a.state.logs...)
+	logs := make([]string, len(a.state.logs))
+	copy(logs, a.state.logs)
 	cfg := a.state.config
 	monitorRunning := a.state.monitorRunning
+	checkRunning := a.state.checkRunning
 	importRunning := a.state.importRunning
 	var active *Proxy
 	if a.state.activeProxy != nil {
 		p := *a.state.activeProxy
 		active = &p
+	}
+	parentMode := a.state.parentMode
+	var manualParent *Proxy
+	if a.state.manualParent != nil {
+		p := *a.state.manualParent
+		manualParent = &p
 	}
 	a.state.mu.Unlock()
 
@@ -115,7 +127,10 @@ func (a *DesktopApp) GetState() StateSnapshot {
 		Results:        results,
 		Logs:           logs,
 		ActiveProxy:    active,
+		ManualParent:   manualParent,
+		ParentMode:     parentMode,
 		MonitorRunning: monitorRunning,
+		CheckRunning:   checkRunning,
 		ImportRunning:  importRunning,
 		ThreeProxyRun:  a.state.threeProxy.Running(),
 	}
@@ -190,15 +205,17 @@ func (a *DesktopApp) SelectProxyFile() string {
 }
 
 func (a *DesktopApp) CheckAll() apiResponse {
-	results := a.state.checkAll(a.context())
-	good := 0
-	for _, result := range results {
-		if result.OK {
-			good++
-		}
+	started := a.state.startCheckAll()
+	if !started {
+		return apiResponse{OK: true, Message: "check already running"}
 	}
-	a.state.addLog("Check finished: " + itoa(good) + " good from " + itoa(len(results)))
-	return apiResponse{OK: true, Message: "good proxies: " + itoa(good) + " / " + itoa(len(results))}
+	return apiResponse{OK: true, Message: "check started"}
+}
+
+func (a *DesktopApp) StopCheckAll() apiResponse {
+	a.state.stopCheckAll()
+	a.state.addLog("Check stopped")
+	return apiResponse{OK: true, Message: "check stopped"}
 }
 
 func (a *DesktopApp) StartMonitor() apiResponse {
@@ -263,6 +280,75 @@ func (a *DesktopApp) RemoveDeadProxies() apiResponse {
 	removed := a.state.removeDeadProxies()
 	a.state.addLog("Removed dead proxies: " + itoa(removed))
 	return apiResponse{OK: true, Message: "removed " + itoa(removed) + " dead proxies"}
+}
+
+func (a *DesktopApp) ClearProxies() apiResponse {
+	a.state.clearProxies()
+	a.state.addLog("Proxy list cleared")
+	return apiResponse{OK: true, Message: "proxy list cleared"}
+}
+
+func (a *DesktopApp) SetParentMode(mode string) apiResponse {
+	if mode != "auto" && mode != "manual" {
+		return apiResponse{OK: false, Message: "mode must be 'auto' or 'manual'"}
+	}
+	a.state.mu.Lock()
+	a.state.parentMode = mode
+	a.state.mu.Unlock()
+	a.state.addLog("Parent mode set to: " + mode)
+	a.state.triggerMonitor()
+	return apiResponse{OK: true, Message: "parent mode: " + mode}
+}
+
+func (a *DesktopApp) SetManualParent(host, port, proxyType, login, password string) apiResponse {
+	cfg := a.state.snapshotConfig()
+	if host == "" || port == "" {
+		a.state.mu.Lock()
+		a.state.manualParent = nil
+		a.state.activeProxy = nil
+		a.state.mu.Unlock()
+		_ = EnsureThreeProxyFiles(cfg.ThreeProxy, nil)
+		_ = TouchReload(cfg.ThreeProxy)
+		a.state.addLog("Manual parent cleared")
+		a.state.triggerMonitor()
+		return apiResponse{OK: true, Message: "manual parent cleared"}
+	}
+	p := &Proxy{Host: host, Port: port, Type: proxyType, Login: login, Password: password}
+	a.state.mu.Lock()
+	a.state.manualParent = p
+	a.state.activeProxy = p
+	a.state.mu.Unlock()
+	_ = EnsureThreeProxyFiles(cfg.ThreeProxy, p)
+	_ = TouchReload(cfg.ThreeProxy)
+	a.state.addLog("Manual parent set: " + host + ":" + port)
+	a.state.triggerMonitor()
+	return apiResponse{OK: true, Message: "manual parent set: " + host + ":" + port}
+}
+
+func (a *DesktopApp) SetManualParentFromList(proxyKey string) apiResponse {
+	cfg := a.state.snapshotConfig()
+	a.state.mu.Lock()
+	var found *Proxy
+	for _, p := range a.state.proxies {
+		if p.Key() == proxyKey {
+			copy := p
+			found = &copy
+			break
+		}
+	}
+	a.state.mu.Unlock()
+	if found == nil {
+		return apiResponse{OK: false, Message: "proxy not found in list"}
+	}
+	a.state.mu.Lock()
+	a.state.manualParent = found
+	a.state.activeProxy = found
+	a.state.mu.Unlock()
+	_ = EnsureThreeProxyFiles(cfg.ThreeProxy, found)
+	_ = TouchReload(cfg.ThreeProxy)
+	a.state.addLog("Manual parent set from list: " + found.Host + ":" + found.Port)
+	a.state.triggerMonitor()
+	return apiResponse{OK: true, Message: "manual parent set: " + found.Host + ":" + found.Port}
 }
 
 func (a *DesktopApp) context() context.Context {

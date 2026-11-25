@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function CheckAll():Promise<main.apiResponse>;
 
+export function ClearProxies():Promise<main.apiResponse>;
+
 export function ExportGoodProxies():Promise<main.apiResponse>;
 
 export function GetState():Promise<main.StateSnapshot>;
@@ -20,9 +22,17 @@ export function SaveSettings(arg1:main.AppConfig):Promise<main.apiResponse>;
 
 export function SelectProxyFile():Promise<string>;
 
+export function SetManualParent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<main.apiResponse>;
+
+export function SetManualParentFromList(arg1:string):Promise<main.apiResponse>;
+
+export function SetParentMode(arg1:string):Promise<main.apiResponse>;
+
 export function StartMonitor():Promise<main.apiResponse>;
 
 export function StartThreeProxy():Promise<main.apiResponse>;
+
+export function StopCheckAll():Promise<main.apiResponse>;
 
 export function StopMonitor():Promise<main.apiResponse>;
 

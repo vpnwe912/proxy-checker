@@ -26,6 +26,7 @@ type Proxy struct {
 	Password string `json:"password,omitempty"`
 	Type     string `json:"type"`
 	Source   string `json:"source,omitempty"`
+	Label    string `json:"label,omitempty"`
 }
 
 type CheckResult struct {
@@ -163,7 +164,18 @@ func parseTextProxies(input string, source string) ([]Proxy, error) {
 
 func parseProxyLine(line string, source string) (Proxy, error) {
 	p := Proxy{Type: defaultProxyType(source), Source: source}
+	// Парсим формат Label:Имя:host:port[@login:pass] или Label::host:port (пустая метка)
+	if len(line) >= 6 && strings.EqualFold(line[:6], "Label:") {
+		rest := line[6:]
+		// Ищем следующий ':' — это конец имени метки (может быть пустым)
+		colonIdx := strings.IndexByte(rest, ':')
+		if colonIdx >= 0 {
+			p.Label = rest[:colonIdx] // пустая строка если Label::
+			line = rest[colonIdx+1:] // остаток — обычная строка прокси
+		}
+	}
 	if parsed, ok, err := parseProxyURLLine(line, source); ok || err != nil {
+		parsed.Label = p.Label
 		return parsed, err
 	}
 	if strings.Contains(line, "@") {
@@ -413,7 +425,11 @@ func CheckProxy(ctx context.Context, p Proxy, testURL string, timeout time.Durat
 		result = CheckProxyWithGo(ctx, p, testURL, timeout, allowInsecure)
 	}
 	if result.OK && geoEnabled {
-		geoCtx, cancel := context.WithTimeout(ctx, timeout)
+		geoTimeout := timeout * 2
+		if geoTimeout < 5*time.Second {
+			geoTimeout = 5 * time.Second
+		}
+		geoCtx, cancel := context.WithTimeout(context.Background(), geoTimeout)
 		defer cancel()
 		geo, err := LookupProxyGeo(geoCtx, result.Proxy, geoProvider, geoURL, allowInsecure)
 		if err != nil {

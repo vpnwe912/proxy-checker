@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,10 +68,7 @@ func EnsureThreeProxyFiles(s ThreeProxySettings, parent *Proxy) error {
 	if err := os.MkdirAll(filepath.Join(s.WorkDir, "logs"), 0755); err != nil {
 		return err
 	}
-	if err := WriteParentConfig(s, parent); err != nil {
-		return err
-	}
-	if err := WriteMainConfig(s); err != nil {
+	if err := WriteMainConfigWithParent(s, parent); err != nil {
 		return err
 	}
 	if _, err := os.Stat(s.ReloadPath()); os.IsNotExist(err) {
@@ -83,12 +83,7 @@ func EnsureThreeProxyRuntimeFiles(s ThreeProxySettings) error {
 	if err := os.MkdirAll(filepath.Join(s.WorkDir, "logs"), 0755); err != nil {
 		return err
 	}
-	if _, err := os.Stat(s.ParentPath()); os.IsNotExist(err) {
-		if err := WriteParentConfig(s, nil); err != nil {
-			return err
-		}
-	}
-	if err := WriteMainConfig(s); err != nil {
+	if err := WriteMainConfigWithParent(s, nil); err != nil {
 		return err
 	}
 	if _, err := os.Stat(s.ReloadPath()); os.IsNotExist(err) {
@@ -100,11 +95,18 @@ func EnsureThreeProxyRuntimeFiles(s ThreeProxySettings) error {
 }
 
 func WriteMainConfig(s ThreeProxySettings) error {
+	return WriteMainConfigWithParent(s, nil)
+}
+
+func WriteMainConfigWithParent(s ThreeProxySettings, p *Proxy) error {
+	// Конвертируем пути в короткий 8.3 формат для совместимости с кириллицей
+	shortReload := ToShortPath(s.ReloadPath())
+	shortLog := ToShortPath(s.LogPath())
 	lines := []string{
-		fmt.Sprintf("monitor %s", quote3proxyPath(s.ReloadPath())),
+		fmt.Sprintf("monitor %s", quote3proxyPath(shortReload)),
 		"nscache 65536",
 		"",
-		fmt.Sprintf("log %s D", quote3proxyPath(s.LogPath())),
+		fmt.Sprintf("log %s D", quote3proxyPath(shortLog)),
 		`logformat "L%Y-%m-%d %H:%M:%S %N %E %C:%c %R:%r %T"`,
 		"",
 		fmt.Sprintf("internal %s", valueOrDefault(s.InternalIP, "127.0.0.1")),
@@ -117,6 +119,9 @@ func WriteMainConfig(s ThreeProxySettings) error {
 	} else {
 		lines = append(lines, "auth none")
 	}
+
+	parentLine := buildParentLine(s, p)
+
 	lines = append(lines,
 		"",
 		fmt.Sprintf("timeouts %s", valueOrDefault(s.TimeoutLine, "1 5 30 60 1 1 1")),
@@ -124,14 +129,40 @@ func WriteMainConfig(s ThreeProxySettings) error {
 		fmt.Sprintf("admin -p%s", valueOrDefault(s.AdminPort, "8081")),
 		"",
 		fmt.Sprintf("allow * %s", valueOrDefault(s.AllowedIP, "127.0.0.1")),
-		fmt.Sprintf("$%s", quote3proxyPath(s.ParentPath())),
-		fmt.Sprintf("proxy -a -p%s", valueOrDefault(s.ProxyPort, "8080")),
-		"",
-		"deny *",
-		"flush",
-		"",
 	)
+	if parentLine != "" {
+		lines = append(lines, parentLine)
+		lines = append(lines,
+			fmt.Sprintf("proxy -a -p%s", valueOrDefault(s.ProxyPort, "8080")),
+			"",
+			"deny *",
+			"flush",
+			"",
+		)
+	} else {
+		// Нет parent — блокируем весь трафик, чтобы не пропускать через локальный IP
+		lines = append(lines,
+			"deny *",
+			"flush",
+			"",
+		)
+	}
 	return os.WriteFile(s.ConfigPath(), []byte(strings.Join(lines, "\r\n")), 0644)
+}
+
+func buildParentLine(s ThreeProxySettings, p *Proxy) string {
+	if p == nil {
+		return ""
+	}
+	parentType := p.Type
+	if parentType == "" || parentType == "auto" {
+		parentType = valueOrDefault(s.ParentType, "connect")
+	}
+	line := fmt.Sprintf("parent 1000 %s %s %s", parentType, p.Host, p.Port)
+	if p.Login != "" || p.Password != "" {
+		line += fmt.Sprintf(" %s %s", p.Login, p.Password)
+	}
+	return line
 }
 
 func quote3proxyPath(path string) string {
@@ -141,7 +172,7 @@ func quote3proxyPath(path string) string {
 func WriteParentConfig(s ThreeProxySettings, p *Proxy) error {
 	path := s.ParentPath()
 	if p == nil {
-		return os.WriteFile(path, []byte("# no alive parent found\r\n"), 0644)
+		return os.WriteFile(path, []byte(""), 0644)
 	}
 	parentType := p.Type
 	if parentType == "" || parentType == "auto" {
@@ -168,18 +199,30 @@ func (m *ThreeProxyManager) Start(s ThreeProxySettings, onExit func(error)) erro
 	if strings.TrimSpace(s.ExePath) == "" {
 		return fmt.Errorf("path to 3proxy executable is empty")
 	}
+	// Ждём освобождения порта (TIME_WAIT после предыдущей остановки)
+	if !waitPortFree(s.ProxyPort, 10*time.Second) {
+		return fmt.Errorf("port %s is still in use (TIME_WAIT), try again in a moment", s.ProxyPort)
+	}
 	if err := EnsureThreeProxyRuntimeFiles(s); err != nil {
 		return err
 	}
-	cmd := exec.Command(s.ExePath, s.ConfigPath())
+	exePath := ToShortPath(s.ExePath)
+	cfgPath := ToShortPath(s.ConfigPath())
+	workDir := ToShortPath(s.WorkDir)
+	cmd := exec.Command(exePath, cfgPath)
 	hideChildProcessWindow(cmd)
-	cmd.Dir = s.WorkDir
+	cmd.Dir = workDir
+	var stderrBuf bytes.Buffer
 	startLog, err := os.OpenFile(filepath.Join(s.WorkDir, "logs", "3proxy-start.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		_, _ = startLog.WriteString(time.Now().Format("2006-01-02 15:04:05") + " starting " + s.ExePath + " " + s.ConfigPath() + "\r\n")
-		cmd.Stdout = startLog
-		cmd.Stderr = startLog
+		combined := io.MultiWriter(startLog, &stderrBuf)
+		cmd.Stdout = combined
+		cmd.Stderr = combined
 		defer startLog.Close()
+	} else {
+		cmd.Stdout = &stderrBuf
+		cmd.Stderr = &stderrBuf
 	}
 	if err := cmd.Start(); err != nil {
 		return err
@@ -201,6 +244,13 @@ func (m *ThreeProxyManager) Start(s ThreeProxySettings, onExit func(error)) erro
 	}()
 	select {
 	case err := <-exitCh:
+		output := strings.TrimSpace(stderrBuf.String())
+		if output != "" {
+			if err != nil {
+				return fmt.Errorf("3proxy exited immediately: %w\nOutput: %s", err, output)
+			}
+			return fmt.Errorf("3proxy exited immediately\nOutput: %s", output)
+		}
 		if err != nil {
 			return fmt.Errorf("3proxy exited immediately: %w", err)
 		}
@@ -212,14 +262,32 @@ func (m *ThreeProxyManager) Start(s ThreeProxySettings, onExit func(error)) erro
 
 func (m *ThreeProxyManager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.cmd == nil || m.cmd.Process == nil {
 		m.cmd = nil
+		m.mu.Unlock()
 		return nil
 	}
 	err := m.cmd.Process.Kill()
 	m.cmd = nil
+	m.mu.Unlock()
 	return err
+}
+
+// waitPortFree ждёт до timeout пока TCP-порт на localhost не перестанет быть занятым.
+// Нужно для обхода TIME_WAIT после остановки 3proxy на Windows.
+func waitPortFree(port string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	addr := net.JoinHostPort("127.0.0.1", port)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err != nil {
+			// порт не отвечает — свободен
+			return true
+		}
+		conn.Close()
+		time.Sleep(300 * time.Millisecond)
+	}
+	return false
 }
 
 func (m *ThreeProxyManager) Running() bool {

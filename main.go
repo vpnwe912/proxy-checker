@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -30,9 +30,11 @@ type AppConfig struct {
 	CheckTimeoutSec int                `json:"checkTimeoutSec"`
 	MonitorEverySec int                `json:"monitorEverySec"`
 	Workers         int                `json:"workers"`
-	AllowInsecure   bool               `json:"allowInsecure"`
-	UseCurl         bool               `json:"useCurl"`
-	ThreeProxy      ThreeProxySettings `json:"threeProxy"`
+	AllowInsecure    bool               `json:"allowInsecure"`
+	UseCurl          bool               `json:"useCurl"`
+	MonitorCountry   string             `json:"monitorCountry"`
+	RecheckEverySec  int                `json:"recheckEverySec"`
+	ThreeProxy       ThreeProxySettings `json:"threeProxy"`
 }
 
 type AppState struct {
@@ -41,9 +43,14 @@ type AppState struct {
 	proxies        []Proxy
 	results        map[string]CheckResult
 	activeProxy    *Proxy
+	parentMode     string // "auto" or "manual"
+	manualParent   *Proxy
 	logs           []string
 	monitorCancel  context.CancelFunc
 	monitorRunning bool
+	monitorTrigger chan struct{}
+	checkCancel    context.CancelFunc
+	checkRunning   bool
 	importCancel   context.CancelFunc
 	importRunning  bool
 	nextIndex      int
@@ -69,6 +76,8 @@ func runHTTPServer() {
 
 func NewAppState() *AppState {
 	return &AppState{
+		monitorTrigger: make(chan struct{}, 1),
+		parentMode:     "auto",
 		config: AppConfig{
 			ListenAddr:      "127.0.0.1:18080",
 			ProxyTypeMode:   "auto",
@@ -79,8 +88,9 @@ func NewAppState() *AppState {
 			AutoImportUnit:  "hour",
 			TestURL:         "https://api.ipify.org",
 			CheckTimeoutSec: 2,
-			MonitorEverySec: 120,
-			Workers:         20,
+			MonitorEverySec:  120,
+			RecheckEverySec:  300,
+			Workers:          20,
 			AllowInsecure:   true,
 			UseCurl:         true,
 			ThreeProxy:      DefaultThreeProxySettings(),
@@ -341,117 +351,151 @@ func (a *AppState) monitorLoop(ctx context.Context) {
 		a.monitorCancel = nil
 		a.mu.Unlock()
 	}()
+
+	// Сразу при старте запускаем проверку всех прокси
+	a.addLog("Monitor: initial check started")
+	a.mu.Lock()
+	a.checkRunning = true
+	a.mu.Unlock()
+	a.checkAll(ctx)
+	a.mu.Lock()
+	a.checkRunning = false
+	a.mu.Unlock()
+	a.addLog("Monitor: initial check done")
+
 	for {
-		a.pickAndApplyParent(ctx)
-		interval := time.Duration(a.snapshotConfig().MonitorEverySec) * time.Second
-		timer := time.NewTimer(interval)
+		if ctx.Err() != nil {
+			return
+		}
+		a.pickAndApplyParent()
+
+		cfg := a.snapshotConfig()
+		recheckSec := cfg.RecheckEverySec
+		switchSec := cfg.MonitorEverySec
+		if switchSec <= 0 {
+			switchSec = 120
+		}
+
+		// Если recheck выключен — просто ждём интервал смены parent
+		if recheckSec <= 0 {
+			timer := time.NewTimer(time.Duration(switchSec) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-a.monitorTrigger:
+				timer.Stop()
+			case <-timer.C:
+			}
+			continue
+		}
+
+		// Ждём минимум из switchSec и recheckSec, чередуем смену parent и перепроверку
+		switchTimer := time.NewTimer(time.Duration(switchSec) * time.Second)
+		recheckTimer := time.NewTimer(time.Duration(recheckSec) * time.Second)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
+			switchTimer.Stop()
+			recheckTimer.Stop()
 			return
-		case <-timer.C:
+		case <-a.monitorTrigger:
+			switchTimer.Stop()
+			recheckTimer.Stop()
+		case <-switchTimer.C:
+			recheckTimer.Stop()
+			// просто идём на следующую итерацию — pickAndApplyParent вызовется сверху
+		case <-recheckTimer.C:
+			switchTimer.Stop()
+			a.addLog("Monitor: recheck all proxies started")
+			a.mu.Lock()
+			a.checkRunning = true
+			a.mu.Unlock()
+			a.checkAll(ctx)
+			a.mu.Lock()
+			a.checkRunning = false
+			a.mu.Unlock()
+			a.addLog("Monitor: recheck done")
 		}
 	}
 }
 
-func (a *AppState) pickAndApplyParent(ctx context.Context) {
+func (a *AppState) pickAndApplyParent() {
 	cfg := a.snapshotConfig()
 	a.mu.Lock()
 	proxies := append([]Proxy(nil), a.proxies...)
+	resultsCopy := make(map[string]CheckResult, len(a.results))
+	for k, v := range a.results {
+		resultsCopy[k] = v
+	}
 	start := a.nextIndex
+	parentMode := a.parentMode
+	manualParent := a.manualParent
 	a.mu.Unlock()
-	if len(proxies) == 0 {
-		_ = EnsureThreeProxyFiles(cfg.ThreeProxy, nil)
-		_ = TouchReload(cfg.ThreeProxy)
-		a.addLog("Monitor: no proxies loaded")
-		return
-	}
-	type monitorJob struct {
-		Order int
-		Index int
-		Proxy Proxy
-	}
-	type monitorResult struct {
-		Order  int
-		Index  int
-		Result CheckResult
-	}
 
-	ordered := make([]monitorJob, 0, len(proxies))
-	for i := 0; i < len(proxies); i++ {
-		idx := (start + i) % len(proxies)
-		ordered = append(ordered, monitorJob{Order: i, Index: idx, Proxy: proxies[idx]})
-	}
-
-	workers := cfg.Workers
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > len(ordered) {
-		workers = len(ordered)
-	}
-	jobs := make(chan monitorJob)
-	results := make(chan monitorResult, len(ordered))
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobs {
-				result := CheckProxy(ctx, job.Proxy, cfg.TestURL, time.Duration(cfg.CheckTimeoutSec)*time.Second, cfg.AllowInsecure, cfg.UseCurl, cfg.GeoLookup, cfg.GeoProvider, cfg.GeoLookupURL)
-				results <- monitorResult{Order: job.Order, Index: job.Index, Result: result}
-			}
-		}()
-	}
-	go func() {
-		for _, job := range ordered {
-			if ctx.Err() != nil {
-				break
-			}
-			jobs <- job
-		}
-		close(jobs)
-		wg.Wait()
-		close(results)
-	}()
-
-	var best *monitorResult
-	for item := range results {
-		result := item.Result
-		a.saveResult(result)
-		if result.OK {
-			a.addLog(fmt.Sprintf("Monitor: ok %s HTTP %d", result.Proxy.Address(), result.StatusCode))
-			if best == nil || item.Order < best.Order {
-				copyItem := item
-				best = &copyItem
-			}
-			continue
-		}
-		if ctx.Err() == nil {
-			a.addLog(fmt.Sprintf("Monitor: dead %s %s", result.Proxy.Address(), result.Error))
-		}
-	}
-	if ctx.Err() != nil {
-		return
-	}
-	if best != nil {
-		p := best.Result.Proxy
-		_ = EnsureThreeProxyFiles(cfg.ThreeProxy, &p)
+	// Ручной режим — только применяем manualParent без проверки
+	if parentMode == "manual" {
+		_ = EnsureThreeProxyFiles(cfg.ThreeProxy, manualParent)
 		_ = TouchReload(cfg.ThreeProxy)
 		a.mu.Lock()
-		a.activeProxy = &p
-		a.nextIndex = (best.Index + 1) % len(proxies)
+		a.activeProxy = manualParent
 		a.mu.Unlock()
-		a.addLog(fmt.Sprintf("Monitor: using %s HTTP %d", p.Address(), best.Result.StatusCode))
+		if manualParent != nil {
+			a.addLog(fmt.Sprintf("Monitor: manual parent %s:%s applied", manualParent.Host, manualParent.Port))
+		} else {
+			a.addLog("Monitor: manual mode, no parent set — traffic blocked")
+		}
 		return
 	}
 
-	_ = EnsureThreeProxyFiles(cfg.ThreeProxy, nil)
+	// Авто режим — выбираем лучший из уже проверенных результатов
+	// (checkAll запускается отдельно пользователем)
+	filterCountry := strings.TrimSpace(cfg.MonitorCountry)
+	type candidate struct {
+		order int
+		proxy Proxy
+	}
+	var candidates []candidate
+	for i := 0; i < len(proxies); i++ {
+		idx := (start + i) % len(proxies)
+		p := proxies[idx]
+		res, known := resultsCopy[p.Key()]
+		if !known || !res.OK {
+			continue
+		}
+		if filterCountry != "" && !strings.EqualFold(res.Geo.Country, filterCountry) {
+			continue
+		}
+		candidates = append(candidates, candidate{order: i, proxy: p})
+	}
+
+	if len(candidates) == 0 {
+		_ = EnsureThreeProxyFiles(cfg.ThreeProxy, nil)
+		_ = TouchReload(cfg.ThreeProxy)
+		a.mu.Lock()
+		a.activeProxy = nil
+		a.mu.Unlock()
+		if filterCountry != "" {
+			a.addLog(fmt.Sprintf("Monitor: no alive proxies for country '%s' — traffic blocked", filterCountry))
+		} else {
+			a.addLog("Monitor: no alive proxies known yet — run 'Check All' first, traffic blocked")
+		}
+		return
+	}
+
+	// Берём следующий по кругу от lastIndex
+	best := candidates[0]
+	p := best.proxy
+	_ = EnsureThreeProxyFiles(cfg.ThreeProxy, &p)
 	_ = TouchReload(cfg.ThreeProxy)
 	a.mu.Lock()
-	a.activeProxy = nil
+	a.activeProxy = &p
+	a.nextIndex = (best.order + start + 1) % len(proxies)
 	a.mu.Unlock()
-	a.addLog("Monitor: no alive proxies, fail-closed parent.cfg")
+	if filterCountry != "" {
+		a.addLog(fmt.Sprintf("Monitor: switched to %s [%s]", p.Address(), filterCountry))
+	} else {
+		a.addLog(fmt.Sprintf("Monitor: switched to %s", p.Address()))
+	}
 }
 
 func (a *AppState) checkAll(ctx context.Context) []CheckResult {
@@ -509,7 +553,6 @@ func (a *AppState) setProxies(proxies []Proxy) {
 
 func (a *AppState) mergeProxies(proxies []Proxy) (int, int) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	incoming := applyProxyTypeMode(proxies, a.config.ProxyTypeMode)
 	seen := make(map[string]struct{}, len(a.proxies))
 	for _, proxy := range a.proxies {
@@ -527,7 +570,71 @@ func (a *AppState) mergeProxies(proxies []Proxy) (int, int) {
 		a.proxies = append(a.proxies, proxy)
 		added++
 	}
+	a.mu.Unlock()
+	if added > 0 {
+		a.triggerMonitor()
+	}
 	return added, skipped
+}
+
+func (a *AppState) startCheckAll() bool {
+	a.mu.Lock()
+	if a.checkRunning {
+		a.mu.Unlock()
+		return false
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.checkCancel = cancel
+	a.checkRunning = true
+	a.mu.Unlock()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.addLog(fmt.Sprintf("Check panic: %v", r))
+			}
+			a.mu.Lock()
+			a.checkRunning = false
+			a.checkCancel = nil
+			a.mu.Unlock()
+		}()
+		a.addLog("Check started")
+		results := a.checkAll(ctx)
+		good := 0
+		for _, r := range results {
+			if r.OK {
+				good++
+			}
+		}
+		a.addLog(fmt.Sprintf("Check finished: %d good from %d", good, len(results)))
+	}()
+	return true
+}
+
+func (a *AppState) stopCheckAll() {
+	a.mu.Lock()
+	cancel := a.checkCancel
+	a.checkCancel = nil
+	a.checkRunning = false
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (a *AppState) triggerMonitor() {
+	select {
+	case a.monitorTrigger <- struct{}{}:
+	default:
+	}
+}
+
+func (a *AppState) clearProxies() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.proxies = nil
+	a.results = map[string]CheckResult{}
+	a.activeProxy = nil
+	a.nextIndex = 0
 }
 
 func (a *AppState) removeDeadProxies() int {

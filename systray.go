@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"sync"
@@ -9,6 +10,9 @@ import (
 	"github.com/getlantern/systray"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed build/windows/icon.ico
+var trayIconData []byte
 
 type SystrayManager struct {
 	mu                sync.Mutex
@@ -27,12 +31,7 @@ func NewSystrayManager(app *DesktopApp) *SystrayManager {
 }
 
 func (s *SystrayManager) Start() {
-	iconData, err := os.ReadFile("build/windows/icon.ico")
-	if err != nil {
-		iconData = nil
-	}
-	s.iconData = iconData
-
+	s.iconData = trayIconData
 	go systray.Run(s.onReady, s.onExit)
 }
 
@@ -99,17 +98,33 @@ func (s *SystrayManager) updateLoop() {
 		return
 	}
 
+	// Дать onReady завершить инициализацию меню перед первым обновлением
+	sleepMillis(500)
+
 	for {
-		s.updateMenuItems()
+		ctx := s.app.ctx
+		if ctx == nil {
+			sleepMillis(200)
+			continue
+		}
+		func() {
+			defer func() { recover() }()
+			s.updateMenuItems()
+		}()
 		select {
-		case <-s.app.ctx.Done():
+		case <-ctx.Done():
 			return
 		default:
 		}
 		sleepDuration := 2000
 		for i := 0; i < sleepDuration/100; i++ {
+			ctx = s.app.ctx
+			if ctx == nil {
+				sleepMillis(100)
+				continue
+			}
 			select {
-			case <-s.app.ctx.Done():
+			case <-ctx.Done():
 				return
 			default:
 			}
